@@ -14,7 +14,9 @@ const PORT = process.env.PORT || 3000;
 app.use(cors());
 
 // 配置 body-parser（请求中断错误由错误处理中间件统一处理）
-app.use(bodyParser.json());
+// 支持大模型请求，设置较大的请求体限制（100MB）
+app.use(bodyParser.json({ limit: '100mb' }));
+app.use(bodyParser.urlencoded({ limit: '100mb', extended: true }));
 
 app.use(express.static(path.join(__dirname, 'public')));
 
@@ -50,6 +52,21 @@ app.use((err, req, res, next) => {
         error: { 
           message: '请求已中断',
           type: 'request_aborted' 
+        } 
+      });
+    }
+    return;
+  }
+
+  // 处理请求体过大错误
+  if (err.type === 'entity.too.large' || 
+      err.message === 'request entity too large' ||
+      (err.message && err.message.includes('entity too large'))) {
+    if (!res.headersSent) {
+      return res.status(413).json({ 
+        error: { 
+          message: '请求体过大，最大支持100MB',
+          type: 'payload_too_large' 
         } 
       });
     }
