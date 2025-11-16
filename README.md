@@ -134,7 +134,9 @@ POST http://localhost:3000/api/proxy/chat/completions
 ## 环境变量
 
 - `PORT`: 服务端口（默认：3000）
+- `ADMIN_PASSWORD`: 管理员密码（用于保护管理接口，留空则不启用）
 - `NODE_ENV`: 运行环境（production/development）
+- `AUTO_QUERY_BALANCE_AFTER_CALLS`: API KEY自动查询余额配置（调用多少次后自动查询余额，0表示禁用，默认：10）
 
 ## 贡献
 

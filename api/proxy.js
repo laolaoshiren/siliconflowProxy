@@ -1,7 +1,7 @@
 const express = require('express');
 const axios = require('axios');
 const db = require('../db');
-const { getCurrentApiKey, switchToNextApiKey, checkBalance, markApiKeyStatus, checkAndUpdateAvailability } = require('../utils/apiManager');
+const { getCurrentApiKey, switchToNextApiKey, checkBalance, markApiKeyStatus, checkAndUpdateAvailability, queryBalance } = require('../utils/apiManager');
 
 const router = express.Router();
 
@@ -66,6 +66,36 @@ router.post('/chat/completions', async (req, res) => {
         await markApiKeyStatus(apiKeyId, 'active');
         await db.incrementCallCount(apiKeyId);
         await db.recordUsage(apiKeyId, true);
+
+        // 检查是否需要自动查询余额
+        const autoQueryThreshold = parseInt(process.env.AUTO_QUERY_BALANCE_AFTER_CALLS || '0');
+        if (autoQueryThreshold > 0) {
+          const keyInfo = await db.getApiKeyById(apiKeyId);
+          if (keyInfo && keyInfo.call_count > 0 && keyInfo.call_count % autoQueryThreshold === 0) {
+            // 达到阈值，自动查询余额（异步执行，不阻塞响应）
+            queryBalance(keyInfo.api_key).then(async (balanceInfo) => {
+              if (balanceInfo.success && balanceInfo.balance !== null) {
+                await db.updateApiKeyBalance(apiKeyId, balanceInfo.balance);
+                
+                // 如果余额<1，自动改为不可用状态
+                if (balanceInfo.balance < 1) {
+                  await db.updateApiKeyAvailability(apiKeyId, false);
+                  await require('../utils/apiManager').refreshApiKeys();
+                } else {
+                  // 余额>=1，确保可用状态正确
+                  const currentKey = await db.getApiKeyById(apiKeyId);
+                  if (currentKey && (currentKey.is_available === 0 || currentKey.is_available === null)) {
+                    await db.updateApiKeyAvailability(apiKeyId, true);
+                    await require('../utils/apiManager').refreshApiKeys();
+                  }
+                }
+                console.log(`API Key ${apiKeyId} 自动查询余额完成: ¥${balanceInfo.balance.toFixed(2)}`);
+              }
+            }).catch(err => {
+              console.error(`API Key ${apiKeyId} 自动查询余额失败:`, err.message);
+            });
+          }
+        }
 
         isProcessing = false;
         return res.json(response.data);
