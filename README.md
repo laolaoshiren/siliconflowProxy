@@ -61,15 +61,17 @@ docker-compose logs -f
 docker-compose down
 ```
 
-#### 方式2：使用预构建镜像（推荐）
+#### 方式2：使用预构建镜像（推荐，生产环境）
 
 项目已配置 GitHub Actions，每次提交到 main 分支会自动构建并推送 Docker 镜像到 GitHub Container Registry。
 
+**首次部署（2步）：**
+
 ```bash
-# 拉取最新镜像
+# 1. 拉取最新镜像
 docker pull ghcr.io/laolaoshiren/siliconflowproxy:latest
 
-# 运行容器
+# 2. 运行容器
 docker run -d \
   --name siliconflow-proxy \
   -p 3838:3838 \
@@ -77,9 +79,40 @@ docker run -d \
   -e PORT=3838 \
   -e ADMIN_PASSWORD=your_password \
   -e AUTO_QUERY_BALANCE_AFTER_CALLS=10 \
+  --restart unless-stopped \
   ghcr.io/laolaoshiren/siliconflowproxy:latest
+```
 
-# 查看日志
+**更新项目（一条命令）：**
+
+```bash
+docker pull ghcr.io/laolaoshiren/siliconflowproxy:latest && docker stop siliconflow-proxy 2>/dev/null || true && docker rm siliconflow-proxy 2>/dev/null || true && docker run -d --name siliconflow-proxy -p 3838:3838 -v $(pwd)/data:/app/data -e PORT=3838 -e ADMIN_PASSWORD=your_password -e AUTO_QUERY_BALANCE_AFTER_CALLS=10 --restart unless-stopped ghcr.io/laolaoshiren/siliconflowproxy:latest
+```
+
+或者使用多行格式（更易读）：
+
+```bash
+docker pull ghcr.io/laolaoshiren/siliconflowproxy:latest && \
+docker stop siliconflow-proxy 2>/dev/null || true && \
+docker rm siliconflow-proxy 2>/dev/null || true && \
+docker run -d \
+  --name siliconflow-proxy \
+  -p 3838:3838 \
+  -v $(pwd)/data:/app/data \
+  -e PORT=3838 \
+  -e ADMIN_PASSWORD=your_password \
+  -e AUTO_QUERY_BALANCE_AFTER_CALLS=10 \
+  --restart unless-stopped \
+  ghcr.io/laolaoshiren/siliconflowproxy:latest
+```
+
+**提示：** 
+- 将 `your_password` 替换为你的实际管理员密码
+- `2>/dev/null || true` 确保即使容器不存在也不会报错，适合首次部署和更新场景
+
+**查看日志：**
+
+```bash
 docker logs -f siliconflow-proxy
 ```
 
@@ -95,19 +128,26 @@ services:
     image: ghcr.io/laolaoshiren/siliconflowproxy:latest
     container_name: siliconflow-proxy
     ports:
-      - "3000:3000"
+      - "3838:3838"
     volumes:
       - ./data:/app/data
     restart: unless-stopped
     environment:
-      - PORT=3000
+      - PORT=3838
       - NODE_ENV=production
       - ADMIN_PASSWORD=${ADMIN_PASSWORD}
       - AUTO_QUERY_BALANCE_AFTER_CALLS=${AUTO_QUERY_BALANCE_AFTER_CALLS:-10}
 ```
 
-然后运行：
+**首次部署：**
 ```bash
+docker-compose -f docker-compose.prod.yml up -d
+```
+
+**更新项目：**
+```bash
+# 拉取最新镜像并重启
+docker-compose -f docker-compose.prod.yml pull
 docker-compose -f docker-compose.prod.yml up -d
 ```
 

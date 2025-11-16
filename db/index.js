@@ -12,13 +12,20 @@ class Database {
     return new Promise((resolve, reject) => {
       const fs = require('fs');
       const dbDir = path.dirname(DB_PATH);
+      
+      // 确保数据目录存在
       if (!fs.existsSync(dbDir)) {
-        fs.mkdirSync(dbDir, { recursive: true });
+        try {
+          fs.mkdirSync(dbDir, { recursive: true });
+        } catch (mkdirErr) {
+          reject(new Error(`创建数据目录失败: ${dbDir}。错误: ${mkdirErr.message}`));
+          return;
+        }
       }
 
       this.db = new sqlite3.Database(DB_PATH, (err) => {
         if (err) {
-          reject(err);
+          reject(new Error(`无法打开数据库文件: ${DB_PATH}。错误: ${err.message}`));
         } else {
           this.createTables().then(resolve).catch(reject);
         }

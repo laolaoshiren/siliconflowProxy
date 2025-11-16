@@ -41,6 +41,7 @@ UPLOAD.md
 # Docker
 Dockerfile
 docker-compose.yml
+docker-compose.prod.yml
 .dockerignore
 
 # 其他

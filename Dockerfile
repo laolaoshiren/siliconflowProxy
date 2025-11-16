@@ -12,10 +12,7 @@ RUN npm ci --only=production && npm cache clean --force
 COPY . .
 
 # 创建数据目录
-RUN mkdir -p /app/data && chown -R node:node /app/data
-
-# 切换到非root用户
-USER node
+RUN mkdir -p /app/data
 
 # 暴露端口
 EXPOSE 3000
@@ -24,6 +21,6 @@ EXPOSE 3000
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
   CMD node -e "require('http').get('http://localhost:3000/api/proxy/health', (r) => {process.exit(r.statusCode === 200 ? 0 : 1)})"
 
-# 启动应用
+# 启动应用（以root用户运行，简化生产环境部署）
 CMD ["node", "server.js"]
 
