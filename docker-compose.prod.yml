@@ -2,7 +2,7 @@ version: '3.8'
 
 services:
   siliconflow-proxy:
-    build: .
+    image: ghcr.io/laolaoshiren/siliconflowproxy:latest
     container_name: siliconflow-proxy
     ports:
       - "${PORT:-3000}:3000"

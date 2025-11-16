@@ -1,10 +1,48 @@
+# Node modules
 node_modules
 npm-debug.log
+yarn-error.log
+
+# 数据目录（运行时挂载）
+data
+
+# Git
 .git
 .gitignore
-README.md
-.env
-data/*.db
-data/*.db-journal
-.DS_Store
+.github
 
+# 开发文件
+.env
+.env.local
+.env.*.local
+
+# 日志文件
+*.log
+logs
+
+# IDE
+.vscode
+.idea
+*.swp
+*.swo
+*~
+
+# 测试
+test
+tests
+*.test.js
+*.spec.js
+
+# 文档
+README.md
+UPLOAD.md
+*.md
+
+# Docker
+Dockerfile
+docker-compose.yml
+.dockerignore
+
+# 其他
+.DS_Store
+Thumbs.db

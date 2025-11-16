@@ -42,10 +42,12 @@
 
 ### 使用Docker（推荐）
 
+#### 方式1：使用Docker Compose（本地构建）
+
 ```bash
 # 克隆项目
-git clone https://github.com/your-username/siliconflow-proxy.git
-cd siliconflow-proxy
+git clone https://github.com/laolaoshiren/siliconflowProxy.git
+cd siliconflowProxy
 
 # 构建并启动
 docker-compose up -d
@@ -55,6 +57,56 @@ docker-compose logs -f
 
 # 停止服务
 docker-compose down
+```
+
+#### 方式2：使用预构建镜像（推荐）
+
+项目已配置 GitHub Actions，每次提交到 main 分支会自动构建并推送 Docker 镜像到 GitHub Container Registry。
+
+```bash
+# 拉取最新镜像
+docker pull ghcr.io/laolaoshiren/siliconflowproxy:latest
+
+# 运行容器
+docker run -d \
+  --name siliconflow-proxy \
+  -p 3000:3000 \
+  -v $(pwd)/data:/app/data \
+  -e PORT=3000 \
+  -e ADMIN_PASSWORD=your_password \
+  -e AUTO_QUERY_BALANCE_AFTER_CALLS=10 \
+  ghcr.io/laolaoshiren/siliconflowproxy:latest
+
+# 查看日志
+docker logs -f siliconflow-proxy
+```
+
+#### 方式3：使用Docker Compose（预构建镜像）
+
+创建 `docker-compose.prod.yml`：
+
+```yaml
+version: '3.8'
+
+services:
+  siliconflow-proxy:
+    image: ghcr.io/laolaoshiren/siliconflowproxy:latest
+    container_name: siliconflow-proxy
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./data:/app/data
+    restart: unless-stopped
+    environment:
+      - PORT=3000
+      - NODE_ENV=production
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD}
+      - AUTO_QUERY_BALANCE_AFTER_CALLS=${AUTO_QUERY_BALANCE_AFTER_CALLS:-10}
+```
+
+然后运行：
+```bash
+docker-compose -f docker-compose.prod.yml up -d
 ```
 
 ### 本地开发
