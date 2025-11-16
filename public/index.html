@@ -552,6 +552,40 @@
             return div.innerHTML;
         }
 
+        // 格式化时间为中国时区（UTC+8）
+        function formatChinaTime(dateString) {
+            if (!dateString) return '-';
+            try {
+                const date = new Date(dateString);
+                // 使用 toLocaleString 转换为中国时区（Asia/Shanghai）
+                const options = {
+                    timeZone: 'Asia/Shanghai',
+                    year: 'numeric',
+                    month: '2-digit',
+                    day: '2-digit',
+                    hour: '2-digit',
+                    minute: '2-digit',
+                    second: '2-digit',
+                    hour12: false
+                };
+                const chinaTimeString = date.toLocaleString('zh-CN', options);
+                // 格式化为：YYYY/MM/DD HH:mm:ss
+                // toLocaleString 返回格式可能是 "YYYY/M/D HH:mm:ss"，需要补零
+                const parts = chinaTimeString.split(' ');
+                const datePart = parts[0].split('/');
+                const timePart = parts[1].split(':');
+                const year = datePart[0];
+                const month = datePart[1].padStart(2, '0');
+                const day = datePart[2].padStart(2, '0');
+                const hours = timePart[0].padStart(2, '0');
+                const minutes = timePart[1].padStart(2, '0');
+                const seconds = timePart[2].padStart(2, '0');
+                return `${year}/${month}/${day} ${hours}:${minutes}:${seconds}`;
+            } catch (error) {
+                return '-';
+            }
+        }
+
         // 存储完整的API keys（用于复制）
         let fullApiKeysMap = {};
 
@@ -574,8 +608,8 @@
                 const availableText = isAvailable ? '可用' : '不可用';
                 const availableClass = isAvailable ? 'status-active' : 'status-insufficient';
 
-                const createdDate = key.created_at ? new Date(key.created_at).toLocaleString('zh-CN') : '-';
-                const lastUsed = key.last_used_at ? new Date(key.last_used_at).toLocaleString('zh-CN') : '-';
+                const createdDate = formatChinaTime(key.created_at);
+                const lastUsed = formatChinaTime(key.last_used_at);
                 
                 // 余额显示（金额）
                 let balanceDisplay = '未查询';
