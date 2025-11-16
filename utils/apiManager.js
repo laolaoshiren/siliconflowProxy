@@ -266,9 +266,59 @@ function isBusyError(error) {
   if (!responseData) return false;
   
   // 检查响应体中的文本
-  const responseText = typeof responseData === 'string' 
-    ? responseData 
-    : JSON.stringify(responseData);
+  let responseText = '';
+  
+  if (typeof responseData === 'string') {
+    responseText = responseData;
+  } else if (typeof responseData === 'object') {
+    // 安全地转换为字符串，避免循环引用
+    try {
+      // 先尝试提取常见的错误消息字段
+      if (responseData.error && typeof responseData.error === 'object') {
+        if (responseData.error.message) {
+          responseText += String(responseData.error.message);
+        }
+        if (responseData.error.type) {
+          responseText += ' ' + String(responseData.error.type);
+        }
+      }
+      if (responseData.message) {
+        responseText += ' ' + String(responseData.message);
+      }
+      if (responseData.msg) {
+        responseText += ' ' + String(responseData.msg);
+      }
+      
+      // 如果还没有找到文本，尝试安全地序列化（排除循环引用）
+      if (!responseText) {
+        const seen = new WeakSet();
+        responseText = JSON.stringify(responseData, (key, value) => {
+          // 排除可能导致循环引用的对象
+          if (typeof value === 'object' && value !== null) {
+            if (seen.has(value)) {
+              return '[Circular]';
+            }
+            seen.add(value);
+            // 排除 socket、request 等可能导致循环引用的属性
+            if (key === 'socket' || key === '_httpMessage' || key === 'request' || key === 'response') {
+              return '[Object]';
+            }
+          }
+          return value;
+        });
+      }
+    } catch (e) {
+      // 如果序列化失败，尝试使用 toString
+      try {
+        responseText = String(responseData);
+      } catch (e2) {
+        // 如果都失败了，返回 false
+        return false;
+      }
+    }
+  } else {
+    responseText = String(responseData);
+  }
   
   return /busy/i.test(responseText);
 }
@@ -281,16 +331,30 @@ function getErrorMessage(error) {
     const status = error.response.status;
     const data = error.response.data;
     
-    // 尝试从响应中提取错误消息
+    // 尝试从响应中提取错误消息（安全地处理，避免循环引用）
     if (data) {
-      if (typeof data === 'string') {
-        return data;
-      }
-      if (data.error && data.error.message) {
-        return data.error.message;
-      }
-      if (data.message) {
-        return data.message;
+      try {
+        if (typeof data === 'string') {
+          return data;
+        }
+        if (data && typeof data === 'object') {
+          // 优先提取常见的错误消息字段
+          if (data.error && typeof data.error === 'object' && data.error.message) {
+            return String(data.error.message);
+          }
+          if (data.message) {
+            return String(data.message);
+          }
+          if (data.msg) {
+            return String(data.msg);
+          }
+          if (data.error && typeof data.error === 'string') {
+            return String(data.error);
+          }
+        }
+      } catch (e) {
+        // 如果提取失败，继续使用状态码
+        console.warn('提取错误消息失败:', e.message);
       }
     }
     
@@ -325,7 +389,12 @@ function getErrorMessage(error) {
     return '无法连接到服务器';
   }
   
-  return error.message || '网络错误';
+  // 安全地获取 error.message
+  try {
+    return error.message || '网络错误';
+  } catch (e) {
+    return '网络错误';
+  }
 }
 
 module.exports = {
