@@ -56,6 +56,12 @@ class Database {
           success INTEGER DEFAULT 0,
           error TEXT,
           FOREIGN KEY (api_key_id) REFERENCES api_keys(id)
+        )`,
+        `CREATE TABLE IF NOT EXISTS ip_blacklist (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          blocked_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          unblock_at DATETIME NOT NULL,
+          reason TEXT
         )`
       ];
 
@@ -260,6 +266,58 @@ class Database {
       this.db.run(
         'INSERT INTO api_usage (api_key_id, success, error) VALUES (?, ?, ?)',
         [apiKeyId, success ? 1 : 0, error],
+        (err) => {
+          if (err) {
+            reject(err);
+          } else {
+            resolve();
+          }
+        }
+      );
+    });
+  }
+
+  // 检查IP是否被拉黑
+  async isIpBlocked() {
+    return new Promise((resolve, reject) => {
+      this.db.get(
+        'SELECT * FROM ip_blacklist WHERE unblock_at > CURRENT_TIMESTAMP ORDER BY blocked_at DESC LIMIT 1',
+        [],
+        (err, row) => {
+          if (err) {
+            reject(err);
+          } else {
+            resolve(row || null);
+          }
+        }
+      );
+    });
+  }
+
+  // 添加IP拉黑记录（30分钟）
+  async blockIp(reason = 'IP被硅基流动拉黑') {
+    return new Promise((resolve, reject) => {
+      const unblockAt = new Date(Date.now() + 30 * 60 * 1000).toISOString().replace('T', ' ').substring(0, 19);
+      this.db.run(
+        'INSERT INTO ip_blacklist (unblock_at, reason) VALUES (?, ?)',
+        [unblockAt, reason],
+        (err) => {
+          if (err) {
+            reject(err);
+          } else {
+            resolve();
+          }
+        }
+      );
+    });
+  }
+
+  // 清除所有过期的拉黑记录
+  async clearExpiredBlocks() {
+    return new Promise((resolve, reject) => {
+      this.db.run(
+        'DELETE FROM ip_blacklist WHERE unblock_at <= CURRENT_TIMESTAMP',
+        [],
         (err) => {
           if (err) {
             reject(err);

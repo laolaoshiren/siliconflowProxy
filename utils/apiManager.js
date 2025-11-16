@@ -258,6 +258,76 @@ async function refreshApiKeys() {
   await loadActiveApiKeys();
 }
 
+// 检查错误响应中是否包含"busy"字样（不区分大小写）
+function isBusyError(error) {
+  if (!error || !error.response) return false;
+  
+  const responseData = error.response.data;
+  if (!responseData) return false;
+  
+  // 检查响应体中的文本
+  const responseText = typeof responseData === 'string' 
+    ? responseData 
+    : JSON.stringify(responseData);
+  
+  return /busy/i.test(responseText);
+}
+
+// 获取错误消息（用于返回给客户端）
+function getErrorMessage(error) {
+  if (!error) return '未知错误';
+  
+  if (error.response) {
+    const status = error.response.status;
+    const data = error.response.data;
+    
+    // 尝试从响应中提取错误消息
+    if (data) {
+      if (typeof data === 'string') {
+        return data;
+      }
+      if (data.error && data.error.message) {
+        return data.error.message;
+      }
+      if (data.message) {
+        return data.message;
+      }
+    }
+    
+    // 根据状态码返回默认消息
+    switch (status) {
+      case 400:
+        return '请求参数错误';
+      case 401:
+        return 'API密钥无效或未授权';
+      case 403:
+        return 'API密钥权限不足或余额不足';
+      case 404:
+        return '请求的资源不存在';
+      case 429:
+        return '请求频率过高，请稍后重试';
+      case 500:
+        return '服务器内部错误';
+      case 502:
+        return '网关错误';
+      case 503:
+        return '服务暂时不可用';
+      default:
+        return `请求失败 (HTTP ${status})`;
+    }
+  }
+  
+  if (error.code === 'ECONNABORTED') {
+    return '请求超时';
+  }
+  
+  if (error.code === 'ENOTFOUND' || error.code === 'ECONNREFUSED') {
+    return '无法连接到服务器';
+  }
+  
+  return error.message || '网络错误';
+}
+
 module.exports = {
   getCurrentApiKey,
   switchToNextApiKey,
@@ -266,6 +336,8 @@ module.exports = {
   markApiKeyStatus,
   checkAndUpdateAvailability,
   refreshApiKeys,
-  loadActiveApiKeys
+  loadActiveApiKeys,
+  isBusyError,
+  getErrorMessage
 };
 
