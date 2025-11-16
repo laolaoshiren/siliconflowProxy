@@ -49,17 +49,23 @@ router.post('/chat/completions', async (req, res) => {
 
     while (attempts < maxAttempts) {
       try {
+        // 检查是否是流式请求
+        const isStreaming = req.body && req.body.stream === true;
+
         // 转发请求到硅基流动API
+        const axiosConfig = {
+          headers: {
+            'Authorization': `Bearer ${apiKey}`,
+            'Content-Type': 'application/json'
+          },
+          timeout: 120000, // 120秒超时
+          responseType: isStreaming ? 'stream' : 'json' // 流式请求使用stream模式
+        };
+
         const response = await axios.post(
           `${SILICONFLOW_BASE_URL}/chat/completions`,
           req.body,
-          {
-            headers: {
-              'Authorization': `Bearer ${apiKey}`,
-              'Content-Type': 'application/json'
-            },
-            timeout: 120000 // 120秒超时
-          }
+          axiosConfig
         );
 
         // 成功：更新API key状态，增加调用次数
@@ -67,40 +73,74 @@ router.post('/chat/completions', async (req, res) => {
         await db.incrementCallCount(apiKeyId);
         await db.recordUsage(apiKeyId, true);
 
-        // 检查是否需要自动查询余额
+        // 检查是否需要自动查询余额（流式请求在流结束后异步处理）
         const autoQueryThreshold = parseInt(process.env.AUTO_QUERY_BALANCE_AFTER_CALLS || '0');
-        if (autoQueryThreshold > 0) {
-          // 获取更新后的keyInfo（确保获取到最新的call_count）
-          const keyInfo = await db.getApiKeyById(apiKeyId);
-          if (keyInfo && keyInfo.call_count > 0) {
-            // 检查是否是阈值的倍数（10, 20, 30, 40...）
-            const shouldQuery = keyInfo.call_count % autoQueryThreshold === 0;
-            if (shouldQuery) {
-              console.log(`API Key ${apiKeyId} 调用次数达到 ${keyInfo.call_count}，触发自动查询余额（阈值: ${autoQueryThreshold}）`);
-              // 达到阈值，自动查询余额（异步执行，不阻塞响应）
-              queryBalance(keyInfo.api_key).then(async (balanceInfo) => {
-                if (balanceInfo.success && balanceInfo.balance !== null) {
-                  await db.updateApiKeyBalance(apiKeyId, balanceInfo.balance);
-                  
-                  // 如果余额<1，自动改为不可用状态
-                  if (balanceInfo.balance < 1) {
-                    await db.updateApiKeyAvailability(apiKeyId, false);
-                    await require('../utils/apiManager').refreshApiKeys();
-                  } else {
-                    // 余额>=1，确保可用状态正确
-                    const currentKey = await db.getApiKeyById(apiKeyId);
-                    if (currentKey && (currentKey.is_available === 0 || currentKey.is_available === null)) {
-                      await db.updateApiKeyAvailability(apiKeyId, true);
-                      await require('../utils/apiManager').refreshApiKeys();
-                    }
-                  }
-                  console.log(`API Key ${apiKeyId} 自动查询余额完成: ¥${balanceInfo.balance.toFixed(2)} (调用次数: ${keyInfo.call_count})`);
-                }
-              }).catch(err => {
-                console.error(`API Key ${apiKeyId} 自动查询余额失败:`, err.message);
-              });
-            }
+        const shouldAutoQuery = autoQueryThreshold > 0;
+
+        // 处理流式响应
+        if (isStreaming && response.data) {
+          // 设置流式响应头（必须在第一次write之前设置）
+          const streamHeaders = {
+            'Content-Type': response.headers['content-type'] || 'text/event-stream',
+            'Cache-Control': 'no-cache',
+            'Connection': 'keep-alive',
+            'X-Accel-Buffering': 'no' // 禁用nginx缓冲
+          };
+
+          // 复制上游的其他相关响应头
+          if (response.headers['x-request-id']) {
+            streamHeaders['X-Request-ID'] = response.headers['x-request-id'];
           }
+
+          // 将上游的流式数据直接转发给客户端
+          response.data.on('data', (chunk) => {
+            if (!res.headersSent) {
+              res.writeHead(200, streamHeaders);
+            }
+            // 直接转发数据块，保持原始格式
+            res.write(chunk);
+          });
+
+          response.data.on('end', () => {
+            res.end();
+            isProcessing = false;
+            
+            // 流结束后异步处理余额查询
+            if (shouldAutoQuery) {
+              handleAutoQueryBalance(apiKeyId, autoQueryThreshold);
+            }
+          });
+
+          response.data.on('error', (err) => {
+            console.error(`流式响应错误 (API Key ${apiKeyId}):`, err.message);
+            if (!res.headersSent) {
+              res.status(500).json({
+                error: {
+                  message: '流式响应错误',
+                  type: 'stream_error'
+                }
+              });
+            } else {
+              res.end();
+            }
+            isProcessing = false;
+          });
+
+          // 处理客户端断开连接
+          req.on('close', () => {
+            if (response.data && typeof response.data.destroy === 'function') {
+              response.data.destroy();
+            }
+            isProcessing = false;
+          });
+
+          return; // 流式请求直接返回，不执行后续代码
+        }
+
+        // 非流式响应处理
+        // 检查是否需要自动查询余额
+        if (shouldAutoQuery) {
+          handleAutoQueryBalance(apiKeyId, autoQueryThreshold);
         }
 
         isProcessing = false;
@@ -188,6 +228,44 @@ router.post('/chat/completions', async (req, res) => {
     });
   }
 });
+
+// 处理自动查询余额的辅助函数
+async function handleAutoQueryBalance(apiKeyId, autoQueryThreshold) {
+  try {
+    const keyInfo = await db.getApiKeyById(apiKeyId);
+    if (keyInfo && keyInfo.call_count > 0) {
+      // 检查是否是阈值的倍数（10, 20, 30, 40...）
+      const shouldQuery = keyInfo.call_count % autoQueryThreshold === 0;
+      if (shouldQuery) {
+        console.log(`API Key ${apiKeyId} 调用次数达到 ${keyInfo.call_count}，触发自动查询余额（阈值: ${autoQueryThreshold}）`);
+        // 达到阈值，自动查询余额（异步执行，不阻塞响应）
+        queryBalance(keyInfo.api_key).then(async (balanceInfo) => {
+          if (balanceInfo.success && balanceInfo.balance !== null) {
+            await db.updateApiKeyBalance(apiKeyId, balanceInfo.balance);
+            
+            // 如果余额<1，自动改为不可用状态
+            if (balanceInfo.balance < 1) {
+              await db.updateApiKeyAvailability(apiKeyId, false);
+              await require('../utils/apiManager').refreshApiKeys();
+            } else {
+              // 余额>=1，确保可用状态正确
+              const currentKey = await db.getApiKeyById(apiKeyId);
+              if (currentKey && (currentKey.is_available === 0 || currentKey.is_available === null)) {
+                await db.updateApiKeyAvailability(apiKeyId, true);
+                await require('../utils/apiManager').refreshApiKeys();
+              }
+            }
+            console.log(`API Key ${apiKeyId} 自动查询余额完成: ¥${balanceInfo.balance.toFixed(2)} (调用次数: ${keyInfo.call_count})`);
+          }
+        }).catch(err => {
+          console.error(`API Key ${apiKeyId} 自动查询余额失败:`, err.message);
+        });
+      }
+    }
+  } catch (error) {
+    console.error(`处理自动查询余额时出错 (API Key ${apiKeyId}):`, error.message);
+  }
+}
 
 // 健康检查
 router.get('/health', (req, res) => {
