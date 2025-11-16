@@ -70,30 +70,36 @@ router.post('/chat/completions', async (req, res) => {
         // 检查是否需要自动查询余额
         const autoQueryThreshold = parseInt(process.env.AUTO_QUERY_BALANCE_AFTER_CALLS || '0');
         if (autoQueryThreshold > 0) {
+          // 获取更新后的keyInfo（确保获取到最新的call_count）
           const keyInfo = await db.getApiKeyById(apiKeyId);
-          if (keyInfo && keyInfo.call_count > 0 && keyInfo.call_count % autoQueryThreshold === 0) {
-            // 达到阈值，自动查询余额（异步执行，不阻塞响应）
-            queryBalance(keyInfo.api_key).then(async (balanceInfo) => {
-              if (balanceInfo.success && balanceInfo.balance !== null) {
-                await db.updateApiKeyBalance(apiKeyId, balanceInfo.balance);
-                
-                // 如果余额<1，自动改为不可用状态
-                if (balanceInfo.balance < 1) {
-                  await db.updateApiKeyAvailability(apiKeyId, false);
-                  await require('../utils/apiManager').refreshApiKeys();
-                } else {
-                  // 余额>=1，确保可用状态正确
-                  const currentKey = await db.getApiKeyById(apiKeyId);
-                  if (currentKey && (currentKey.is_available === 0 || currentKey.is_available === null)) {
-                    await db.updateApiKeyAvailability(apiKeyId, true);
+          if (keyInfo && keyInfo.call_count > 0) {
+            // 检查是否是阈值的倍数（10, 20, 30, 40...）
+            const shouldQuery = keyInfo.call_count % autoQueryThreshold === 0;
+            if (shouldQuery) {
+              console.log(`API Key ${apiKeyId} 调用次数达到 ${keyInfo.call_count}，触发自动查询余额（阈值: ${autoQueryThreshold}）`);
+              // 达到阈值，自动查询余额（异步执行，不阻塞响应）
+              queryBalance(keyInfo.api_key).then(async (balanceInfo) => {
+                if (balanceInfo.success && balanceInfo.balance !== null) {
+                  await db.updateApiKeyBalance(apiKeyId, balanceInfo.balance);
+                  
+                  // 如果余额<1，自动改为不可用状态
+                  if (balanceInfo.balance < 1) {
+                    await db.updateApiKeyAvailability(apiKeyId, false);
                     await require('../utils/apiManager').refreshApiKeys();
+                  } else {
+                    // 余额>=1，确保可用状态正确
+                    const currentKey = await db.getApiKeyById(apiKeyId);
+                    if (currentKey && (currentKey.is_available === 0 || currentKey.is_available === null)) {
+                      await db.updateApiKeyAvailability(apiKeyId, true);
+                      await require('../utils/apiManager').refreshApiKeys();
+                    }
                   }
+                  console.log(`API Key ${apiKeyId} 自动查询余额完成: ¥${balanceInfo.balance.toFixed(2)} (调用次数: ${keyInfo.call_count})`);
                 }
-                console.log(`API Key ${apiKeyId} 自动查询余额完成: ¥${balanceInfo.balance.toFixed(2)}`);
-              }
-            }).catch(err => {
-              console.error(`API Key ${apiKeyId} 自动查询余额失败:`, err.message);
-            });
+              }).catch(err => {
+                console.error(`API Key ${apiKeyId} 自动查询余额失败:`, err.message);
+              });
+            }
           }
         }
 
