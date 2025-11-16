@@ -115,12 +115,140 @@ async function checkBalance(apiKey) {
   }
 }
 
+// 查询API余额并返回余额信息
+// 参考文档: https://docs.siliconflow.cn/cn/api-reference/userinfo/get-user-info
+async function queryBalance(apiKey) {
+  try {
+    // 使用硅基流动官方API查询用户信息（包含余额）
+    const response = await axios.get(
+      `${SILICONFLOW_BASE_URL}/user/info`,
+      {
+        headers: {
+          'Authorization': `Bearer ${apiKey}`,
+          'Content-Type': 'application/json'
+        },
+        timeout: 5000
+      }
+    );
+
+    if (response.status === 200 && response.data) {
+      const data = response.data;
+      
+      // 检查响应格式
+      if (data.code === 20000 && data.status === true && data.data) {
+        const userData = data.data;
+        
+        // 优先使用 balance（可用余额），如果没有则使用 totalBalance（总余额）
+        const balanceStr = userData.balance || userData.totalBalance || '0';
+        const balance = parseFloat(balanceStr);
+        
+        if (!isNaN(balance)) {
+          return {
+            success: true,
+            hasBalance: balance >= 0.5,
+            balance: balance,
+            message: `余额: ¥${balance.toFixed(2)}${userData.totalBalance ? ` (总余额: ¥${parseFloat(userData.totalBalance).toFixed(2)})` : ''}`
+          };
+        }
+      }
+      
+      // 如果响应格式不符合预期，尝试直接获取余额
+      if (data.data && (data.data.balance || data.data.totalBalance)) {
+        const balanceStr = data.data.balance || data.data.totalBalance || '0';
+        const balance = parseFloat(balanceStr);
+        
+        if (!isNaN(balance)) {
+          return {
+            success: true,
+            hasBalance: balance >= 0.5,
+            balance: balance,
+            message: `余额: ¥${balance.toFixed(2)}`
+          };
+        }
+      }
+      
+      return {
+        success: false,
+        hasBalance: false,
+        balance: null,
+        message: '无法解析余额信息'
+      };
+    }
+    
+    return { 
+      success: false, 
+      hasBalance: false, 
+      balance: null,
+      message: '无法确定余额状态'
+    };
+  } catch (error) {
+    if (error.response) {
+      const status = error.response.status;
+      if (status === 401 || status === 403) {
+        return { 
+          success: true, 
+          hasBalance: false, 
+          balance: 0,
+          message: 'API密钥无效或余额不足'
+        };
+      }
+      
+      // 尝试解析错误响应
+      if (error.response.data) {
+        const errorMsg = typeof error.response.data === 'string' 
+          ? error.response.data 
+          : error.response.data.message || `请求失败: ${status}`;
+        return { 
+          success: false, 
+          hasBalance: false, 
+          balance: null,
+          message: errorMsg
+        };
+      }
+      
+      return { 
+        success: false, 
+        hasBalance: false, 
+        balance: null,
+        message: `请求失败: ${status}`
+      };
+    }
+    return { 
+      success: false, 
+      hasBalance: false, 
+      balance: null,
+      message: error.message || '网络错误'
+    };
+  }
+}
+
 // 标记API key状态
 async function markApiKeyStatus(id, status, error = null) {
   await db.updateApiKeyStatus(id, status, error);
   
   // 如果状态变为非活跃，重新加载列表
   if (status !== 'active') {
+    await loadActiveApiKeys();
+  }
+}
+
+// 检查并更新API key可用状态
+// 规则：失败3次且余额<1才改为不可用
+async function checkAndUpdateAvailability(id) {
+  const keyInfo = await db.getApiKeyById(id);
+  if (!keyInfo) return;
+  
+  const errorCount = keyInfo.error_count || 0;
+  const balance = keyInfo.balance !== null ? parseFloat(keyInfo.balance) : null;
+  const isAvailable = keyInfo.is_available === 1 || keyInfo.is_available === null;
+  
+  // 如果失败3次且余额<1，设置为不可用
+  if (errorCount >= 3 && balance !== null && balance < 1) {
+    await db.updateApiKeyAvailability(id, false);
+    await loadActiveApiKeys();
+  } else if (!isAvailable && (errorCount < 3 || balance === null || balance >= 1)) {
+    // 如果之前不可用，但现在条件不满足，恢复为可用
+    await db.updateApiKeyAvailability(id, true);
     await loadActiveApiKeys();
   }
 }
@@ -134,7 +262,9 @@ module.exports = {
   getCurrentApiKey,
   switchToNextApiKey,
   checkBalance,
+  queryBalance,
   markApiKeyStatus,
+  checkAndUpdateAvailability,
   refreshApiKeys,
   loadActiveApiKeys
 };

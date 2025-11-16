@@ -1,7 +1,7 @@
 const express = require('express');
 const axios = require('axios');
 const db = require('../db');
-const { getCurrentApiKey, switchToNextApiKey, checkBalance, markApiKeyStatus } = require('../utils/apiManager');
+const { getCurrentApiKey, switchToNextApiKey, checkBalance, markApiKeyStatus, checkAndUpdateAvailability } = require('../utils/apiManager');
 
 const router = express.Router();
 
@@ -62,8 +62,9 @@ router.post('/chat/completions', async (req, res) => {
           }
         );
 
-        // 成功：更新API key状态
+        // 成功：更新API key状态，增加调用次数
         await markApiKeyStatus(apiKeyId, 'active');
+        await db.incrementCallCount(apiKeyId);
         await db.recordUsage(apiKeyId, true);
 
         isProcessing = false;
@@ -74,6 +75,11 @@ router.post('/chat/completions', async (req, res) => {
 
         // 记录错误
         await db.recordUsage(apiKeyId, false, error.message);
+        // 增加错误计数
+        await markApiKeyStatus(apiKeyId, 'error', error.message);
+
+        // 检查并更新可用状态（失败3次且余额<0.5才改为不可用）
+        await checkAndUpdateAvailability(apiKeyId);
 
         // 检查是否是余额问题
         if (error.response) {
@@ -86,6 +92,8 @@ router.post('/chat/completions', async (req, res) => {
             if (!hasBalance) {
               // 没有余额，标记为欠费并切换到下一个
               await markApiKeyStatus(apiKeyId, 'insufficient', '余额不足');
+              await db.updateApiKeyBalance(apiKeyId, 0);
+              await checkAndUpdateAvailability(apiKeyId);
               keyInfo = await switchToNextApiKey();
               if (!keyInfo) {
                 isProcessing = false;
@@ -111,15 +119,13 @@ router.post('/chat/completions', async (req, res) => {
             attempts--;
             continue;
           } else {
-            // 其他错误，标记为错误状态，但继续使用当前key重试
-            await markApiKeyStatus(apiKeyId, 'error', error.message);
+            // 其他错误，等待后重试同一个key
             await new Promise(resolve => setTimeout(resolve, 2000));
             attempts--;
             continue;
           }
         } else {
           // 网络错误或其他错误，等待后重试同一个key
-          await markApiKeyStatus(apiKeyId, 'error', error.message);
           await new Promise(resolve => setTimeout(resolve, 2000));
           attempts--;
           continue;

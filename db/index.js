@@ -32,8 +32,11 @@ class Database {
         `CREATE TABLE IF NOT EXISTS api_keys (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
           api_key TEXT NOT NULL UNIQUE,
-          name TEXT,
           status TEXT DEFAULT 'active' CHECK(status IN ('active', 'insufficient', 'error')),
+          is_available INTEGER DEFAULT 1 CHECK(is_available IN (0, 1)),
+          balance REAL DEFAULT 0,
+          balance_checked_at DATETIME,
+          call_count INTEGER DEFAULT 0,
           created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
           last_used_at DATETIME,
           error_count INTEGER DEFAULT 0,
@@ -57,7 +60,8 @@ class Database {
           } else {
             completed++;
             if (completed === queries.length) {
-              resolve();
+              // 迁移旧数据库结构：添加新字段（如果不存在）
+              this.migrateDatabase().then(resolve).catch(resolve); // 即使迁移失败也继续
             }
           }
         });
@@ -65,16 +69,47 @@ class Database {
     });
   }
 
-  async addApiKey(apiKey, name = '') {
+  async migrateDatabase() {
+    return new Promise((resolve, reject) => {
+      const migrations = [
+        { sql: `ALTER TABLE api_keys ADD COLUMN balance REAL DEFAULT 0`, field: 'balance' },
+        { sql: `ALTER TABLE api_keys ADD COLUMN balance_checked_at DATETIME`, field: 'balance_checked_at' },
+        { sql: `ALTER TABLE api_keys ADD COLUMN is_available INTEGER DEFAULT 1`, field: 'is_available' },
+        { sql: `ALTER TABLE api_keys ADD COLUMN call_count INTEGER DEFAULT 0`, field: 'call_count' }
+      ];
+      
+      let completed = 0;
+      migrations.forEach((migration) => {
+        this.db.run(migration.sql, (err) => {
+          // 忽略已存在的错误
+          if (err && !err.message.includes('duplicate column')) {
+            // 如果是balance字段从TEXT改为REAL，需要特殊处理
+            if (migration.field === 'balance' && err.message.includes('cannot change')) {
+              // 先删除旧字段，再添加新字段（需要手动处理，这里只记录）
+              console.warn('需要手动迁移balance字段类型');
+            } else {
+              console.error(`迁移${migration.field}字段失败:`, err);
+            }
+          }
+          completed++;
+          if (completed === migrations.length) {
+            resolve();
+          }
+        });
+      });
+    });
+  }
+
+  async addApiKey(apiKey) {
     return new Promise((resolve, reject) => {
       this.db.run(
-        'INSERT INTO api_keys (api_key, name) VALUES (?, ?)',
-        [apiKey, name],
+        'INSERT INTO api_keys (api_key) VALUES (?)',
+        [apiKey],
         function(err) {
           if (err) {
             reject(err);
           } else {
-            resolve({ id: this.lastID, apiKey, name });
+            resolve({ id: this.lastID, apiKey });
           }
         }
       );
@@ -96,16 +131,19 @@ class Database {
   async getAllApiKeys() {
     return new Promise((resolve, reject) => {
       this.db.all(
-        'SELECT id, api_key, name, status, created_at, last_used_at, error_count, last_error FROM api_keys ORDER BY created_at ASC',
+        'SELECT id, api_key, status, is_available, balance, balance_checked_at, call_count, created_at, last_used_at, error_count, last_error FROM api_keys ORDER BY created_at ASC',
         [],
         (err, rows) => {
           if (err) {
             reject(err);
           } else {
-            // 隐藏API key的敏感部分
+            // 隐藏API key的敏感部分，但保留完整key用于复制
             const safeRows = rows.map(row => ({
               ...row,
-              api_key: row.api_key ? `${row.api_key.substring(0, 8)}...${row.api_key.substring(row.api_key.length - 4)}` : ''
+              full_api_key: row.api_key, // 保存完整的API key用于复制
+              api_key: row.api_key ? `${row.api_key.substring(0, 8)}...${row.api_key.substring(row.api_key.length - 4)}` : '',
+              is_available: row.is_available === 1 || row.is_available === null, // 兼容null值
+              balance: row.balance !== null ? parseFloat(row.balance) : null
             }));
             resolve(safeRows);
           }
@@ -114,11 +152,29 @@ class Database {
     });
   }
 
+  async getAllApiKeysForExport() {
+    return new Promise((resolve, reject) => {
+      // 导出时返回完整的API keys（不隐藏）
+      this.db.all(
+        'SELECT api_key FROM api_keys ORDER BY created_at ASC',
+        [],
+        (err, rows) => {
+          if (err) {
+            reject(err);
+          } else {
+            resolve(rows);
+          }
+        }
+      );
+    });
+  }
+
   async getActiveApiKeys() {
     return new Promise((resolve, reject) => {
+      // 只返回可用状态的API keys（is_available = 1）
       this.db.all(
-        'SELECT id, api_key, name, status, created_at, last_used_at FROM api_keys WHERE status = ? ORDER BY created_at ASC',
-        ['active'],
+        'SELECT id, api_key, status, created_at, last_used_at FROM api_keys WHERE is_available = 1 ORDER BY created_at ASC',
+        [],
         (err, rows) => {
           if (err) {
             reject(err);
@@ -159,6 +215,36 @@ class Database {
           [status, id],
           (err) => err ? reject(err) : resolve()
         );
+    });
+  }
+
+  async updateApiKeyBalance(id, balance) {
+    return new Promise((resolve, reject) => {
+      this.db.run(
+        'UPDATE api_keys SET balance = ?, balance_checked_at = CURRENT_TIMESTAMP WHERE id = ?',
+        [balance, id],
+        (err) => err ? reject(err) : resolve()
+      );
+    });
+  }
+
+  async updateApiKeyAvailability(id, isAvailable) {
+    return new Promise((resolve, reject) => {
+      this.db.run(
+        'UPDATE api_keys SET is_available = ? WHERE id = ?',
+        [isAvailable ? 1 : 0, id],
+        (err) => err ? reject(err) : resolve()
+      );
+    });
+  }
+
+  async incrementCallCount(id) {
+    return new Promise((resolve, reject) => {
+      this.db.run(
+        'UPDATE api_keys SET call_count = call_count + 1, last_used_at = CURRENT_TIMESTAMP WHERE id = ?',
+        [id],
+        (err) => err ? reject(err) : resolve()
+      );
     });
   }
 

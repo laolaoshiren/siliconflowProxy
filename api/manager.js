@@ -1,11 +1,57 @@
 const express = require('express');
 const db = require('../db');
-const { refreshApiKeys } = require('../utils/apiManager');
+const { refreshApiKeys, queryBalance, checkAndUpdateAvailability } = require('../utils/apiManager');
 
 const router = express.Router();
 
+// 管理员密码验证中间件
+const adminAuth = (req, res, next) => {
+  const adminPassword = process.env.ADMIN_PASSWORD;
+  if (!adminPassword) {
+    // 如果没有设置密码，直接通过
+    return next();
+  }
+  
+  const authHeader = req.headers.authorization;
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({ success: false, message: '需要管理员密码' });
+  }
+  
+  const token = authHeader.substring(7);
+  if (token !== adminPassword) {
+    return res.status(401).json({ success: false, message: '管理员密码错误' });
+  }
+  
+  next();
+};
+
+// 检查是否需要密码
+router.get('/check-auth', (req, res) => {
+  const adminPassword = process.env.ADMIN_PASSWORD;
+  res.json({ 
+    success: true, 
+    requiresPassword: !!adminPassword 
+  });
+});
+
+// 验证密码
+router.post('/verify-password', (req, res) => {
+  const adminPassword = process.env.ADMIN_PASSWORD;
+  const { password } = req.body;
+  
+  if (!adminPassword) {
+    return res.json({ success: true, message: '未设置密码' });
+  }
+  
+  if (password === adminPassword) {
+    return res.json({ success: true, message: '密码正确' });
+  } else {
+    return res.status(401).json({ success: false, message: '密码错误' });
+  }
+});
+
 // 获取所有API keys
-router.get('/api-keys', async (req, res) => {
+router.get('/api-keys', adminAuth, async (req, res) => {
   try {
     const keys = await db.getAllApiKeys();
     res.json({ success: true, data: keys });
@@ -15,31 +61,112 @@ router.get('/api-keys', async (req, res) => {
   }
 });
 
-// 添加API key
-router.post('/api-keys', async (req, res) => {
+// 添加API key（单个或批量）
+router.post('/api-keys', adminAuth, async (req, res) => {
   try {
-    const { api_key, name } = req.body;
+    const { api_key, api_keys } = req.body;
     
-    if (!api_key || !api_key.trim()) {
+    // 支持批量添加
+    const keysToAdd = api_keys ? api_keys.split('\n').map(k => k.trim()).filter(k => k) : [api_key?.trim()].filter(k => k);
+    
+    if (keysToAdd.length === 0) {
       return res.status(400).json({ success: false, message: 'API key不能为空' });
     }
 
-    const result = await db.addApiKey(api_key.trim(), name || '');
+    const results = [];
+    const errors = [];
+    
+    for (const key of keysToAdd) {
+      try {
+        const result = await db.addApiKey(key);
+        results.push(result);
+      } catch (error) {
+        if (error.message.includes('UNIQUE constraint')) {
+          errors.push({ key: key.substring(0, 8) + '...', message: 'API key已存在' });
+        } else {
+          errors.push({ key: key.substring(0, 8) + '...', message: error.message });
+        }
+      }
+    }
+    
     await refreshApiKeys(); // 刷新活跃列表
     
-    res.json({ success: true, data: result });
+    res.json({ 
+      success: true, 
+      data: results,
+      added: results.length,
+      errors: errors.length > 0 ? errors : undefined
+    });
   } catch (error) {
     console.error('添加API key失败:', error);
-    if (error.message.includes('UNIQUE constraint')) {
-      res.status(400).json({ success: false, message: 'API key已存在' });
-    } else {
-      res.status(500).json({ success: false, message: '添加API key失败' });
+    res.status(500).json({ success: false, message: '添加API key失败' });
+  }
+});
+
+// 查询API key余额
+router.get('/api-keys/:id/balance', adminAuth, async (req, res) => {
+  try {
+    const id = parseInt(req.params.id);
+    if (isNaN(id)) {
+      return res.status(400).json({ success: false, message: '无效的ID' });
     }
+
+    const keyInfo = await db.getApiKeyById(id);
+    if (!keyInfo) {
+      return res.status(404).json({ success: false, message: 'API key不存在' });
+    }
+
+    const balanceInfo = await queryBalance(keyInfo.api_key);
+    
+    // 更新数据库中的余额信息
+    if (balanceInfo.success && balanceInfo.balance !== null) {
+      await db.updateApiKeyBalance(id, balanceInfo.balance);
+      
+      // 如果余额<1，自动改为不可用状态
+      if (balanceInfo.balance < 1) {
+        await db.updateApiKeyAvailability(id, false);
+        await refreshApiKeys();
+      } else {
+        // 余额>=1，确保可用状态正确
+        const currentKey = await db.getApiKeyById(id);
+        if (currentKey && (currentKey.is_available === 0 || currentKey.is_available === null)) {
+          // 如果之前不可用，现在余额充足，恢复为可用
+          await db.updateApiKeyAvailability(id, true);
+          await refreshApiKeys();
+        }
+      }
+    } else if (balanceInfo.success && balanceInfo.balance === null) {
+      // 无法获取具体余额，但API key有效，保持当前状态
+      // 不更新余额字段
+    } else {
+      // 查询失败，如果返回了余额0，更新
+      if (balanceInfo.balance === 0) {
+        await db.updateApiKeyBalance(id, 0);
+        await db.updateApiKeyAvailability(id, false);
+        await refreshApiKeys();
+      }
+    }
+    
+    res.json({ 
+      success: true, 
+      data: {
+        balance: balanceInfo.balance,
+        hasBalance: balanceInfo.hasBalance,
+        message: balanceInfo.message,
+        checkedAt: new Date().toISOString()
+      }
+    });
+    
+    // 刷新列表以更新显示
+    await refreshApiKeys();
+  } catch (error) {
+    console.error('查询余额失败:', error);
+    res.status(500).json({ success: false, message: '查询余额失败' });
   }
 });
 
 // 删除API key
-router.delete('/api-keys/:id', async (req, res) => {
+router.delete('/api-keys/:id', adminAuth, async (req, res) => {
   try {
     const id = parseInt(req.params.id);
     if (isNaN(id)) {
@@ -61,7 +188,7 @@ router.delete('/api-keys/:id', async (req, res) => {
 });
 
 // 更新API key状态（手动激活）
-router.put('/api-keys/:id/activate', async (req, res) => {
+router.put('/api-keys/:id/activate', adminAuth, async (req, res) => {
   try {
     const id = parseInt(req.params.id);
     if (isNaN(id)) {
@@ -75,6 +202,54 @@ router.put('/api-keys/:id/activate', async (req, res) => {
   } catch (error) {
     console.error('激活API key失败:', error);
     res.status(500).json({ success: false, message: '激活API key失败' });
+  }
+});
+
+// 切换API key可用状态
+router.put('/api-keys/:id/toggle-availability', adminAuth, async (req, res) => {
+  try {
+    const id = parseInt(req.params.id);
+    if (isNaN(id)) {
+      return res.status(400).json({ success: false, message: '无效的ID' });
+    }
+
+    const keyInfo = await db.getApiKeyById(id);
+    if (!keyInfo) {
+      return res.status(404).json({ success: false, message: 'API key不存在' });
+    }
+
+    const currentAvailability = keyInfo.is_available === 1 || keyInfo.is_available === null;
+    const newAvailability = !currentAvailability;
+    
+    await db.updateApiKeyAvailability(id, newAvailability);
+    await refreshApiKeys();
+    
+    res.json({ 
+      success: true, 
+      message: newAvailability ? '已设置为可用' : '已设置为不可用',
+      is_available: newAvailability
+    });
+  } catch (error) {
+    console.error('切换可用状态失败:', error);
+    res.status(500).json({ success: false, message: '切换可用状态失败' });
+  }
+});
+
+// 导出所有API keys
+router.get('/api-keys/export', adminAuth, async (req, res) => {
+  try {
+    // 直接查询数据库获取完整的API keys（不隐藏）
+    const keys = await db.getAllApiKeysForExport();
+    
+    // 每行一个
+    const keysText = keys.map(k => k.api_key).join('\n');
+    
+    res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+    res.setHeader('Content-Disposition', 'attachment; filename="api_keys.txt"');
+    res.send(keysText);
+  } catch (error) {
+    console.error('导出API keys失败:', error);
+    res.status(500).json({ success: false, message: '导出失败' });
   }
 });
 

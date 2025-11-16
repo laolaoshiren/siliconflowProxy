@@ -1,3 +1,4 @@
+require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const bodyParser = require('body-parser');
@@ -24,12 +25,12 @@ app.get('/', (req, res) => {
 });
 
 // 初始化数据库和API keys
-const apiManager = require('./utils/apiManager');
+const apiKeyManager = require('./utils/apiManager');
 
 db.init().then(async () => {
   console.log('数据库初始化完成');
   // 初始化加载API keys
-  await apiManager.loadActiveApiKeys();
+  await apiKeyManager.loadActiveApiKeys();
   console.log('API keys加载完成');
   app.listen(PORT, () => {
     console.log(`服务器运行在 http://localhost:${PORT}`);
