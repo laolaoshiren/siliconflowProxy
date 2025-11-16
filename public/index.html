@@ -553,11 +553,30 @@
         }
 
         // 格式化时间为中国时区（UTC+8）
+        // 数据库存储的是 UTC 时间（格式：YYYY-MM-DD HH:mm:ss，无时区信息）
+        // 需要将其解析为 UTC 时间，然后转换为中国时区（UTC+8）显示
         function formatChinaTime(dateString) {
             if (!dateString) return '-';
             try {
-                const date = new Date(dateString);
-                // 使用 toLocaleString 转换为中国时区（Asia/Shanghai）
+                // 如果时间字符串没有时区信息（格式：YYYY-MM-DD HH:mm:ss）
+                // SQLite 的 CURRENT_TIMESTAMP 返回的是 UTC 时间
+                // 需要将其解析为 UTC 时间（+00:00），然后转换为中国时区显示
+                let date;
+                if (typeof dateString === 'string' && /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(dateString)) {
+                    // 格式：YYYY-MM-DD HH:mm:ss，没有时区信息
+                    // 将其解析为 UTC 时间（+00:00）
+                    date = new Date(dateString + '+00:00');
+                } else {
+                    // 如果已经有时区信息，直接解析
+                    date = new Date(dateString);
+                }
+                
+                // 验证日期是否有效
+                if (isNaN(date.getTime())) {
+                    return '-';
+                }
+                
+                // 使用 toLocaleString 转换为中国时区（Asia/Shanghai，UTC+8）
                 const options = {
                     timeZone: 'Asia/Shanghai',
                     year: 'numeric',
