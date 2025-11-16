@@ -330,8 +330,15 @@
             </div>
 
             <div class="table-container">
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
-                    <h2 style="margin: 0; color: #333;">API密钥列表</h2>
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; flex-wrap: wrap; gap: 10px;">
+                    <div style="display: flex; align-items: center; gap: 15px; flex: 1; min-width: 300px;">
+                        <h2 style="margin: 0; color: #333;">API密钥列表</h2>
+                        <div style="display: flex; align-items: center; gap: 8px; font-size: 13px; color: #555; background: #e8f4f8; padding: 6px 12px; border-radius: 4px; border-left: 3px solid #3498db;">
+                            <span style="font-weight: 500;">API地址：</span>
+                            <span id="apiUrlText" style="font-family: 'Courier New', monospace; color: #2c3e50;">加载中...</span>
+                            <button onclick="copyApiUrl()" class="btn btn-info btn-small" style="padding: 2px 8px; font-size: 11px; margin-left: 4px;">复制</button>
+                        </div>
+                    </div>
                     <div style="display: flex; align-items: center; gap: 20px;">
                         <div style="font-size: 16px; font-weight: 500;">
                             总余额: <span id="totalBalance" style="color: #27ae60; font-weight: 600;">¥0.00</span>
@@ -860,8 +867,49 @@
             }
         }
 
+        // 获取并显示API地址
+        function updateApiUrl() {
+            const protocol = window.location.protocol;
+            const host = window.location.host;
+            const apiUrl = `${protocol}//${host}/api/proxy/`;
+            const apiUrlText = document.getElementById('apiUrlText');
+            if (apiUrlText) {
+                apiUrlText.textContent = apiUrl;
+            }
+        }
+
+        // 复制API地址
+        async function copyApiUrl() {
+            const protocol = window.location.protocol;
+            const host = window.location.host;
+            const apiUrl = `${protocol}//${host}/api/proxy/`;
+            
+            try {
+                await navigator.clipboard.writeText(apiUrl);
+                showAlert('API地址已复制到剪贴板');
+            } catch (error) {
+                // 降级方案
+                const textArea = document.createElement('textarea');
+                textArea.value = apiUrl;
+                textArea.style.position = 'fixed';
+                textArea.style.left = '-999999px';
+                document.body.appendChild(textArea);
+                textArea.select();
+                try {
+                    document.execCommand('copy');
+                    showAlert('API地址已复制到剪贴板');
+                } catch (err) {
+                    showAlert('复制失败，请手动复制', 'error');
+                } finally {
+                    document.body.removeChild(textArea);
+                }
+            }
+        }
+
         // 页面加载时检查认证并加载列表
         checkAuth();
+        // 更新API地址显示
+        updateApiUrl();
     </script>
 </body>
 </html>
