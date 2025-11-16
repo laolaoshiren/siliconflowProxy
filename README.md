@@ -7,6 +7,8 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Node.js](https://img.shields.io/badge/Node.js-18+-green.svg)](https://nodejs.org/)
 [![Docker](https://img.shields.io/badge/Docker-Ready-blue.svg)](https://www.docker.com/)
+[![GitHub Actions](https://github.com/laolaoshiren/siliconflowProxy/workflows/Build%20and%20Push%20Docker%20Image/badge.svg)](https://github.com/laolaoshiren/siliconflowProxy/actions)
+[![Docker Image](https://img.shields.io/badge/docker-ghcr.io/laolaoshiren/siliconflowproxy-blue)](https://github.com/laolaoshiren/siliconflowProxy/pkgs/container/siliconflowproxy)
 
 ## 功能特性
 
@@ -70,9 +72,9 @@ docker pull ghcr.io/laolaoshiren/siliconflowproxy:latest
 # 运行容器
 docker run -d \
   --name siliconflow-proxy \
-  -p 3000:3000 \
+  -p 3838:3838 \
   -v $(pwd)/data:/app/data \
-  -e PORT=3000 \
+  -e PORT=3838 \
   -e ADMIN_PASSWORD=your_password \
   -e AUTO_QUERY_BALANCE_AFTER_CALLS=10 \
   ghcr.io/laolaoshiren/siliconflowproxy:latest
