@@ -30,57 +30,29 @@
         .header {
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             color: white;
-            padding: 30px;
-            text-align: center;
+            padding: 15px 20px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 15px;
         }
 
         .header h1 {
-            font-size: 28px;
-            margin-bottom: 10px;
+            font-size: 20px;
+            margin: 0;
+            display: flex;
+            align-items: center;
+            gap: 8px;
         }
 
         .header p {
-            opacity: 0.9;
-            font-size: 14px;
+            display: none;
         }
 
         .content {
-            padding: 30px;
-        }
-
-        .add-section {
-            background: #f8f9fa;
             padding: 20px;
-            border-radius: 8px;
-            margin-bottom: 30px;
         }
 
-        .form-group {
-            margin-bottom: 15px;
-        }
-
-        .form-group label {
-            display: block;
-            margin-bottom: 5px;
-            color: #333;
-            font-weight: 500;
-        }
-
-        .form-group input,
-        .form-group textarea {
-            width: 100%;
-            padding: 10px;
-            border: 1px solid #ddd;
-            border-radius: 6px;
-            font-size: 14px;
-            transition: border-color 0.3s;
-            font-family: inherit;
-        }
-
-        .form-group textarea {
-            min-height: 120px;
-            resize: vertical;
-        }
 
         .form-group input:focus,
         .form-group textarea:focus {
@@ -369,6 +341,156 @@
             margin-bottom: 15px;
         }
 
+        .add-modal {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.5);
+            display: none;
+            align-items: center;
+            justify-content: center;
+            z-index: 1002;
+            backdrop-filter: blur(4px);
+        }
+
+        .add-modal.show {
+            display: flex;
+        }
+
+        .add-box {
+            background: white;
+            padding: 0;
+            border-radius: 16px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            max-width: 700px;
+            width: 90%;
+            max-height: 90vh;
+            height: auto;
+            min-height: 500px;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            animation: slideDown 0.3s ease-out;
+        }
+
+        @keyframes slideDown {
+            from {
+                opacity: 0;
+                transform: translateY(-20px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .add-header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 20px 25px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .add-header h2 {
+            margin: 0;
+            font-size: 20px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .add-header .close-btn {
+            background: rgba(255, 255, 255, 0.2);
+            border: none;
+            color: white;
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+            cursor: pointer;
+            font-size: 20px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.3s;
+        }
+
+        .add-header .close-btn:hover {
+            background: rgba(255, 255, 255, 0.3);
+            transform: rotate(90deg);
+        }
+
+        .add-body {
+            padding: 25px;
+            overflow-y: auto;
+            flex: 1;
+        }
+
+        .add-body .form-group {
+            margin-bottom: 20px;
+        }
+
+        .add-body .form-group label {
+            display: block;
+            margin-bottom: 8px;
+            color: #333;
+            font-weight: 600;
+            font-size: 14px;
+        }
+
+        .add-body .form-group textarea {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            font-size: 14px;
+            font-family: 'Courier New', monospace;
+            transition: all 0.3s;
+            min-height: 300px;
+            resize: vertical;
+        }
+
+        .key-count {
+            margin-top: 10px;
+            padding: 8px 12px;
+            background: #e8f4f8;
+            border-radius: 6px;
+            font-size: 13px;
+            color: #2c3e50;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .key-count .count-number {
+            font-weight: 600;
+            color: #667eea;
+            font-size: 14px;
+        }
+
+        .add-body .form-group textarea:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+
+        .add-footer {
+            padding: 20px 25px;
+            background: #f8f9fa;
+            border-top: 1px solid #e0e0e0;
+            display: flex;
+            justify-content: flex-end;
+            gap: 12px;
+        }
+
+        .add-footer .btn {
+            padding: 10px 24px;
+            font-size: 14px;
+        }
+
         .main-content {
             display: none;
         }
@@ -404,43 +526,60 @@
         </div>
     </div>
 
+    <!-- 添加API密钥模态框 -->
+    <div id="addModal" class="add-modal">
+        <div class="add-box">
+            <div class="add-header">
+                <h2>🔑 添加API密钥</h2>
+                <button class="close-btn" onclick="closeAddModal()" title="关闭">×</button>
+            </div>
+            <div class="add-body">
+                <form id="addForm">
+                    <div class="form-group">
+                        <label for="apiKeys">API Key（支持批量添加，每行一个）*</label>
+                        <textarea id="apiKeys" name="apiKeys" placeholder="输入您的硅基流动API密钥，支持批量添加，每行一个&#10;&#10;示例：&#10;sk-xxxxxxxxxxxxx&#10;sk-yyyyyyyyyyyyy" required></textarea>
+                        <div id="keyCount" class="key-count" style="display: none;">
+                            <span>📊 检测到</span>
+                            <span class="count-number" id="keyCountNumber">0</span>
+                            <span>个API密钥</span>
+                        </div>
+                    </div>
+                </form>
+            </div>
+            <div class="add-footer">
+                <button type="button" class="btn" onclick="closeAddModal()" style="background: #e0e0e0; color: #333;">取消</button>
+                <button type="submit" form="addForm" class="btn btn-primary">添加密钥</button>
+            </div>
+        </div>
+    </div>
+
     <!-- 主内容 -->
     <div class="main-content" id="mainContent">
         <div class="container">
             <div class="header">
                 <h1>🔑 硅基流动API管理</h1>
-                <p>管理和监控您的API密钥</p>
             </div>
             <div class="content">
                 <div id="alert" class="alert"></div>
-            
-            <div class="add-section">
-                <h2 style="margin-bottom: 15px; color: #333;">添加API密钥</h2>
-                <form id="addForm">
-                    <div class="form-group">
-                        <label for="apiKeys">API Key（支持批量添加，每行一个）*</label>
-                        <textarea id="apiKeys" name="apiKeys" placeholder="输入您的硅基流动API密钥，支持批量添加，每行一个" required></textarea>
-                    </div>
-                    <button type="submit" class="btn btn-primary">添加密钥</button>
-                </form>
-            </div>
 
             <div class="table-container">
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; flex-wrap: wrap; gap: 10px;">
-                    <div style="display: flex; align-items: center; gap: 15px; flex: 1; min-width: 300px;">
-                        <h2 style="margin: 0; color: #333;">API密钥列表</h2>
-                        <div style="display: flex; align-items: center; gap: 8px; font-size: 13px; color: #555; background: #e8f4f8; padding: 6px 12px; border-radius: 4px; border-left: 3px solid #3498db;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; flex-wrap: wrap; gap: 8px;">
+                    <div style="display: flex; align-items: center; gap: 12px; flex: 1; min-width: 300px;">
+                        <h2 style="margin: 0; color: #333; font-size: 18px;">API密钥列表</h2>
+                        <button class="btn btn-primary" onclick="showAddModal()" style="padding: 6px 14px; font-size: 13px;">+ 添加密钥</button>
+                        <div style="display: flex; align-items: center; gap: 6px; font-size: 12px; color: #555; background: #e8f4f8; padding: 4px 10px; border-radius: 4px; border-left: 3px solid #3498db;">
                             <span style="font-weight: 500;">API地址：</span>
-                            <span id="apiUrlText" style="font-family: 'Courier New', monospace; color: #2c3e50;">加载中...</span>
-                            <button onclick="copyApiUrl()" class="btn btn-info btn-small" style="padding: 2px 8px; font-size: 11px; margin-left: 4px;">复制</button>
+                            <span id="apiUrlText" style="font-family: 'Courier New', monospace; color: #2c3e50; font-size: 11px;">加载中...</span>
+                            <button onclick="copyApiUrl()" class="btn btn-info btn-small" style="padding: 2px 6px; font-size: 10px; margin-left: 2px;">复制</button>
                         </div>
                     </div>
-                    <div style="display: flex; align-items: center; gap: 20px;">
-                        <div style="font-size: 16px; font-weight: 500;">
-                            总余额: <span id="totalBalance" style="color: #27ae60; font-weight: 600;">¥0.00</span>
+                    <div style="display: flex; align-items: center; gap: 12px;">
+                        <div style="font-size: 18px; font-weight: 600; display: flex; align-items: center; gap: 8px;">
+                            <span style="color: #333;">总余额:</span>
+                            <span id="totalBalance" style="color: #27ae60; font-weight: 700; font-size: 22px;">¥0.00</span>
                         </div>
-                        <button class="btn btn-primary" onclick="exportAllKeys()">导出全部</button>
-                        <button class="btn btn-info" onclick="queryAllBalances()" id="queryAllBtn">一键查询所有余额</button>
+                        <button class="btn btn-primary" onclick="exportAllKeys()" style="padding: 6px 12px; font-size: 13px;">导出全部</button>
+                        <button class="btn btn-info" onclick="queryAllBalances()" id="queryAllBtn" style="padding: 6px 12px; font-size: 13px;">一键查询余额</button>
                     </div>
                 </div>
                 <div id="loading" class="loading">加载中...</div>
@@ -829,6 +968,68 @@
             updateTableHighlight();
         }
 
+        // 计算并显示密钥数量
+        function updateKeyCount() {
+            const textarea = document.getElementById('apiKeys');
+            const countEl = document.getElementById('keyCount');
+            const countNumberEl = document.getElementById('keyCountNumber');
+            
+            const text = textarea.value.trim();
+            if (text) {
+                const keys = text.split('\n')
+                    .map(k => k.trim())
+                    .filter(k => k && k.length > 0);
+                const count = keys.length;
+                
+                if (count > 0) {
+                    countNumberEl.textContent = count;
+                    countEl.style.display = 'flex';
+                } else {
+                    countEl.style.display = 'none';
+                }
+            } else {
+                countEl.style.display = 'none';
+            }
+        }
+
+        // 显示添加密钥模态框
+        function showAddModal() {
+            document.getElementById('addModal').classList.add('show');
+            setTimeout(() => {
+                const textarea = document.getElementById('apiKeys');
+                textarea.focus();
+                // 添加输入事件监听
+                textarea.addEventListener('input', updateKeyCount);
+                textarea.addEventListener('paste', () => {
+                    setTimeout(updateKeyCount, 10);
+                });
+            }, 100);
+        }
+
+        // 关闭添加密钥模态框
+        function closeAddModal() {
+            document.getElementById('addModal').classList.remove('show');
+            document.getElementById('addForm').reset();
+            document.getElementById('keyCount').style.display = 'none';
+            const textarea = document.getElementById('apiKeys');
+            textarea.removeEventListener('input', updateKeyCount);
+            textarea.removeEventListener('paste', updateKeyCount);
+        }
+
+        // 点击模态框外部关闭
+        document.getElementById('addModal').addEventListener('click', (e) => {
+            if (e.target.id === 'addModal') {
+                closeAddModal();
+            }
+        });
+
+        // ESC键关闭模态框
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape' && document.getElementById('addModal').classList.contains('show')) {
+                closeAddModal();
+            }
+        });
+
         // 添加API key（支持批量）
         document.getElementById('addForm').addEventListener('submit', async (e) => {
             e.preventDefault();
@@ -859,7 +1060,7 @@
                         ? `成功添加 ${result.added} 个密钥${result.errors ? `，${result.errors.length} 个失败` : ''}`
                         : '添加失败';
                     showAlert(message, result.added > 0 ? 'success' : 'error');
-                    document.getElementById('addForm').reset();
+                    closeAddModal();
                     loadApiKeys();
                 } else {
                     showAlert(result.message || '添加失败', 'error');
