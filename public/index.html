@@ -2507,9 +2507,13 @@
             logModalState.apiKeyId = id;
             logModalState.page = 1;
             logModalState.records = [];
+            logModalState.total = 0;
+            logModalState.totalPages = 1;
+            logModalState.loading = false;
             updateLogSubtitle(id);
             document.getElementById('logModal').style.display = 'flex';
             setLogTableMessage('加载中...');
+            updateLogPagination(); // 初始化按钮状态
             await loadApiKeyLogs(1);
         }
 
@@ -2539,12 +2543,12 @@
                 logModalState.total = result.pagination?.total || 0;
                 logModalState.totalPages = result.pagination?.totalPages || 1;
                 renderLogTableRows();
-                updateLogPagination();
             } catch (error) {
                 console.error('加载日志失败:', error);
                 setLogTableMessage(`加载失败：${error.message}`, true);
             } finally {
                 logModalState.loading = false;
+                updateLogPagination(); // 确保在loading状态改变后更新按钮状态
             }
         }
 
@@ -2605,34 +2609,59 @@
         function updateLogPagination() {
             const info = document.getElementById('logPageInfo');
             if (info) {
-                info.textContent = `共 ${logModalState.total} 条记录，第 ${logModalState.page} / ${logModalState.totalPages} 页`;
+                const totalPages = Math.max(1, logModalState.totalPages);
+                info.textContent = `共 ${logModalState.total} 条记录，第 ${logModalState.page} / ${totalPages} 页`;
             }
 
             const prevBtn = document.getElementById('logPrevPage');
             const nextBtn = document.getElementById('logNextPage');
-            if (prevBtn) prevBtn.disabled = logModalState.page <= 1 || logModalState.loading;
-            if (nextBtn) nextBtn.disabled = logModalState.page >= logModalState.totalPages || logModalState.loading;
+            if (prevBtn) {
+                prevBtn.disabled = logModalState.page <= 1 || logModalState.loading;
+                prevBtn.style.cursor = prevBtn.disabled ? 'not-allowed' : 'pointer';
+            }
+            if (nextBtn) {
+                nextBtn.disabled = logModalState.page >= logModalState.totalPages || logModalState.loading;
+                nextBtn.style.cursor = nextBtn.disabled ? 'not-allowed' : 'pointer';
+            }
 
             const pageSizeSelect = document.getElementById('logPageSizeSelect');
             if (pageSizeSelect) {
                 pageSizeSelect.value = String(logModalState.pageSize);
+                pageSizeSelect.disabled = logModalState.loading;
             }
         }
 
         function changeLogPage(delta) {
-            if (logModalState.loading) return;
+            if (logModalState.loading) {
+                console.log('正在加载中，请稍候...');
+                return;
+            }
             const targetPage = logModalState.page + delta;
-            if (targetPage < 1 || targetPage > logModalState.totalPages) return;
+            if (targetPage < 1 || targetPage > logModalState.totalPages) {
+                console.log('目标页码超出范围:', targetPage);
+                return;
+            }
+            console.log('切换到第', targetPage, '页');
             loadApiKeyLogs(targetPage);
         }
+        
+        // 暴露到全局作用域，确保onclick可以访问
+        window.changeLogPage = changeLogPage;
 
         function changeLogPageSize(value) {
             const size = parseInt(value, 10);
-            if (isNaN(size) || size <= 0) return;
+            if (isNaN(size) || size <= 0) {
+                console.log('无效的页面大小:', value);
+                return;
+            }
+            console.log('更改每页显示数量为:', size);
             logModalState.pageSize = size;
             logModalState.page = 1;
             loadApiKeyLogs(1);
         }
+        
+        // 暴露到全局作用域，确保onchange可以访问
+        window.changeLogPageSize = changeLogPageSize;
 
         function closeLogModal() {
             document.getElementById('logModal').style.display = 'none';
