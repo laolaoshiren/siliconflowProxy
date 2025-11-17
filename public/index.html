@@ -2227,10 +2227,17 @@
             const dialog = document.createElement('div');
             dialog.id = 'proxySelectDialog';
             dialog.style.cssText = 'position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 1003;';
+            // 根据主题模式设置文字颜色和边框
+            const isDarkMode = document.documentElement.getAttribute('data-theme') === 'dark';
+            const labelColor = isDarkMode ? '#c8c8c8' : '#1a1a1a';
+            const emptyTextColor = isDarkMode ? '#95a5a6' : '#666666';
+            const borderColor = isDarkMode ? '#333' : '#d0d0d0';
+            const containerBg = isDarkMode ? '#1e1e1e' : '#ffffff';
+            
             const proxyListHtml = proxyConfigs.length > 0 ? `
                 <div style="margin-bottom: 20px;">
-                    <label style="display: block; margin-bottom: 12px; color: var(--text-primary); font-weight: 600; font-size: 14px;">通过代理验证：</label>
-                    <div style="max-height: 300px; overflow-y: auto;">
+                    <label style="display: block; margin-bottom: 12px; color: ${labelColor}; font-weight: 600; font-size: 14px;">通过代理验证：</label>
+                    <div style="max-height: 300px; overflow-y: auto; border: 2px solid ${borderColor}; border-radius: 8px; padding: 12px; background: ${containerBg};">
                         ${proxyConfigs.map(proxy => {
                             const authInfo = proxy.username ? ` (${proxy.username}:***)` : ' (无需认证)';
                             const isAvailable = proxy.is_available === 1;
@@ -2238,15 +2245,15 @@
                                 ? '<span style="background: #27ae60; color: white; padding: 2px 6px; border-radius: 3px; font-size: 10px; margin-left: 6px;">可用</span>'
                                 : '<span style="background: #e74c3c; color: white; padding: 2px 6px; border-radius: 3px; font-size: 10px; margin-left: 6px;">不可用</span>';
                             const verifyInfo = proxy.verify_ip ? ` - ${proxy.verify_ip} ${proxy.verify_address || ''}` : (proxy.verifyInfo ? ` - ${proxy.verifyInfo.ip || ''} ${proxy.verifyInfo.address || ''}` : '');
-                            const latencyInfo = proxy.verify_latency ? `<div style="font-size: 11px; opacity: 0.85;">延迟: ${proxy.verify_latency}ms</div>` : '';
+                            const latencyInfo = proxy.verify_latency ? `<div style="font-size: 11px; color: rgba(255, 255, 255, 0.85); margin-top: 4px;">延迟: ${proxy.verify_latency}ms</div>` : '';
                             return `
                                 <button onclick="verifyApiKeyWithProxy(${keyId}, ${proxy.id})" 
-                                        style="width: 100%; padding: 12px; margin-bottom: 8px; background: ${isAvailable ? 'var(--btn-info-bg)' : '#95a5a6'}; color: white; border: none; border-radius: 6px; cursor: ${isAvailable ? 'pointer' : 'not-allowed'}; font-size: 13px; text-align: left; opacity: ${isAvailable ? '1' : '0.7'};"
+                                        style="width: 100%; padding: 12px; margin-bottom: 8px; background: ${isAvailable ? '#3498db' : '#95a5a6'}; color: white; border: none; border-radius: 6px; cursor: ${isAvailable ? 'pointer' : 'not-allowed'}; font-size: 13px; text-align: left; opacity: ${isAvailable ? '1' : '0.7'};"
                                         ${!isAvailable ? 'disabled title="该代理当前不可用"' : ''}>
                                     <div style="display: flex; align-items: center; justify-content: space-between;">
                                         <div>
                                             <strong>${proxy.type.toUpperCase()}</strong> ${proxy.host}:${proxy.port}${authInfo}${statusBadge}
-                                            ${verifyInfo ? `<div style="font-size: 11px; margin-top: 4px; opacity: 0.9;">${verifyInfo}</div>` : ''}
+                                            ${verifyInfo ? `<div style="font-size: 11px; margin-top: 4px; color: rgba(255, 255, 255, 0.9);">${verifyInfo}</div>` : ''}
                                             ${latencyInfo}
                                         </div>
                                         <span style="font-size: 16px;">🌐</span>
@@ -2256,21 +2263,24 @@
                         }).join('')}
                     </div>
                 </div>
-            ` : '<p style="color: var(--text-secondary); text-align: center; padding: 20px;">暂无可用代理配置</p>';
+            ` : `<p style="color: ${emptyTextColor}; text-align: center; padding: 20px; border: 2px solid ${borderColor}; border-radius: 8px; background: ${containerBg};">暂无可用代理配置</p>`;
 
+            const textColor = isDarkMode ? '#c8c8c8' : '#1a1a1a';
+            const dialogBg = isDarkMode ? '#1e1e1e' : '#ffffff';
+            
             dialog.innerHTML = `
-                <div style="background: var(--container-bg); padding: 25px; border-radius: 12px; max-width: 600px; width: 90%; box-shadow: var(--shadow-lg);">
-                    <h3 style="margin: 0 0 20px 0; color: var(--text-primary); font-size: 18px;">🌐 选择验证方式</h3>
+                <div style="background: ${dialogBg}; padding: 25px; border-radius: 12px; max-width: 600px; width: 90%; box-shadow: var(--shadow-lg);">
+                    <h3 style="margin: 0 0 20px 0; color: ${textColor}; font-size: 18px; font-weight: 600;">🌐 选择验证方式</h3>
                     <div style="margin-bottom: 20px;">
                         <button onclick="handleDirectVerify(${keyId})" 
-                                style="width: 100%; padding: 12px; margin-bottom: 10px; background: var(--btn-primary-bg); color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 14px; display: flex; align-items: center; justify-content: center; gap: 8px;">
+                                style="width: 100%; padding: 12px; margin-bottom: 10px; background: #667eea; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 14px; display: flex; align-items: center; justify-content: center; gap: 8px;">
                             <span>🔗</span>
                             <span>直接验证（不使用代理）</span>
                         </button>
                     </div>
                     ${proxyListHtml}
                     <button onclick="closeProxySelectDialog()" 
-                            style="width: 100%; padding: 10px; background: var(--table-header-bg); color: var(--text-primary); border: 1px solid var(--border-color); border-radius: 6px; cursor: pointer; font-size: 14px;">
+                            style="width: 100%; padding: 10px; background: ${isDarkMode ? '#252525' : '#f8f9fa'}; color: ${textColor}; border: 1px solid ${borderColor}; border-radius: 6px; cursor: pointer; font-size: 14px;">
                         取消
                     </button>
                 </div>
