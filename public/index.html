@@ -11,38 +11,134 @@
             box-sizing: border-box;
         }
 
+        /* CSS变量定义 - 亮色模式 */
+        :root {
+            --bg-gradient-start: #667eea;
+            --bg-gradient-end: #764ba2;
+            --container-bg: white;
+            --text-primary: #333;
+            --text-secondary: #666;
+            --text-inverse: white;
+            --border-color: #eee;
+            --table-header-bg: #f8f9fa;
+            --table-row-hover: #f8f9fa;
+            --table-using-bg: #e8f5e9;
+            --table-using-hover: #d4edda;
+            --status-active-bg: #d4edda;
+            --status-active-text: #155724;
+            --status-insufficient-bg: #f8d7da;
+            --status-insufficient-text: #721c24;
+            --status-error-bg: #fff3cd;
+            --status-error-text: #856404;
+            --input-bg: white;
+            --input-border: #ddd;
+            --modal-bg: white;
+            --modal-header-bg: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            --info-box-bg: #e3f2fd;
+            --info-box-text: #1565c0;
+            --info-box-border: #2196f3;
+            --checkbox-bg: white;
+            --checkbox-border: #ddd;
+            --shadow: 0 10px 40px rgba(0,0,0,0.1);
+            --shadow-lg: 0 20px 60px rgba(0,0,0,0.3);
+        }
+
+        /* 暗黑模式变量 */
+        [data-theme="dark"] {
+            --bg-gradient-start: #2d1b4e;
+            --bg-gradient-end: #1a0d2e;
+            --container-bg: #1e1e1e;
+            --text-primary: #c8c8c8;
+            --text-secondary: #9a9a9a;
+            --text-inverse: #1e1e1e;
+            --border-color: #333;
+            --table-header-bg: #252525;
+            --table-row-hover: #2a2a2a;
+            --table-using-bg: #1a3a1a;
+            --table-using-hover: #1f4a1f;
+            --status-active-bg: #1a3a1a;
+            --status-active-text: #81c784;
+            --status-insufficient-bg: #3a1a1a;
+            --status-insufficient-text: #ef5350;
+            --status-error-bg: #3a2a1a;
+            --status-error-text: #ffb74d;
+            --input-bg: #2a2a2a;
+            --input-border: #444;
+            --modal-bg: #2a2a2a;
+            --modal-header-bg: linear-gradient(135deg, #2d1b4e 0%, #1a0d2e 100%);
+            --info-box-bg: #1a2332;
+            --info-box-text: #90caf9;
+            --info-box-border: #64b5f6;
+            --checkbox-bg: #3a3a3a;
+            --checkbox-border: #666;
+            --header-text: #e8e8e8;
+            --shadow: 0 10px 40px rgba(0,0,0,0.5);
+            --shadow-lg: 0 20px 60px rgba(0,0,0,0.7);
+        }
+
         body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            background: linear-gradient(135deg, var(--bg-gradient-start) 0%, var(--bg-gradient-end) 100%);
             min-height: 100vh;
             padding: 20px;
+            color: var(--text-primary);
+            transition: background 0.3s ease;
         }
 
         .container {
             max-width: 1200px;
             margin: 0 auto;
-            background: white;
+            background: var(--container-bg);
             border-radius: 12px;
-            box-shadow: 0 10px 40px rgba(0,0,0,0.1);
+            box-shadow: var(--shadow);
             overflow: hidden;
+            transition: background 0.3s ease, box-shadow 0.3s ease;
         }
 
         .header {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
+            background: var(--modal-header-bg);
+            color: var(--text-inverse);
             padding: 15px 20px;
             display: flex;
             align-items: center;
             justify-content: space-between;
             gap: 15px;
+            transition: background 0.3s ease;
+        }
+
+        .theme-toggle {
+            background: rgba(255, 255, 255, 0.2);
+            border: none;
+            color: white;
+            width: 36px;
+            height: 36px;
+            border-radius: 50%;
+            cursor: pointer;
+            font-size: 18px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.3s;
+            flex-shrink: 0;
+        }
+
+        .theme-toggle:hover {
+            background: rgba(255, 255, 255, 0.3);
+            transform: scale(1.1);
         }
 
         .header h1 {
+            color: var(--text-inverse);
             font-size: 20px;
             margin: 0;
             display: flex;
             align-items: center;
             gap: 8px;
+            transition: color 0.3s ease;
+        }
+
+        [data-theme="dark"] .header h1 {
+            color: var(--header-text);
         }
 
         .header p {
@@ -51,6 +147,8 @@
 
         .content {
             padding: 20px;
+            background: var(--container-bg);
+            transition: background 0.3s ease;
         }
 
 
@@ -131,6 +229,125 @@
             overflow-x: auto;
         }
 
+        /* 表格头部工具栏样式 */
+        .table-header-bar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 16px;
+            gap: 16px;
+            padding: 14px 18px;
+            background: var(--container-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            transition: background 0.3s ease, border-color 0.3s ease;
+        }
+
+        .table-header-left {
+            display: flex;
+            align-items: center;
+            gap: 14px;
+            flex: 1;
+            min-width: 0;
+        }
+
+        .table-header-right {
+            display: flex;
+            align-items: center;
+            gap: 14px;
+            flex-shrink: 0;
+        }
+
+        .table-title {
+            margin: 0;
+            color: var(--text-primary);
+            font-size: 18px;
+            font-weight: 600;
+            white-space: nowrap;
+            transition: color 0.3s ease;
+        }
+
+        .api-url-box {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 13px;
+            color: var(--info-box-text);
+            background: var(--info-box-bg);
+            padding: 10px 14px;
+            border-radius: 6px;
+            border: 1px solid var(--info-box-border);
+            border-left: 3px solid var(--info-box-border);
+            flex: 1;
+            min-width: 0;
+            transition: background 0.3s ease, color 0.3s ease, border-color 0.3s ease;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+
+        [data-theme="dark"] .api-url-box {
+            box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+        }
+
+        .api-url-label {
+            font-weight: 500;
+            white-space: nowrap;
+        }
+
+        .api-url-text {
+            font-family: 'Courier New', monospace;
+            color: var(--info-box-text);
+            font-size: 12px;
+            flex: 1;
+            min-width: 0;
+            white-space: nowrap;
+            transition: color 0.3s ease;
+            cursor: text;
+            user-select: all;
+            margin-right: 4px;
+        }
+
+        .api-url-text:hover {
+            overflow: visible;
+            position: relative;
+            z-index: 10;
+        }
+
+        .balance-display {
+            font-size: 18px;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            white-space: nowrap;
+            padding: 10px 18px;
+            background: var(--table-header-bg);
+            border-radius: 6px;
+            transition: background 0.3s ease;
+        }
+
+        .balance-label {
+            color: var(--text-primary);
+            transition: color 0.3s ease;
+        }
+
+        .balance-amount {
+            color: #27ae60;
+            font-weight: 700;
+            font-size: 22px;
+        }
+
+        .action-buttons {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .action-buttons .btn {
+            padding: 8px 16px;
+            font-size: 13px;
+            white-space: nowrap;
+        }
+
         table {
             width: 100%;
             border-collapse: collapse;
@@ -140,26 +357,34 @@
         th, td {
             padding: 12px;
             text-align: left;
-            border-bottom: 1px solid #eee;
+            border-bottom: 1px solid var(--border-color);
+            transition: border-color 0.3s ease;
         }
 
         th {
-            background: #f8f9fa;
+            background: var(--table-header-bg);
             font-weight: 600;
-            color: #333;
+            color: var(--text-primary);
+            transition: background 0.3s ease, color 0.3s ease;
+        }
+
+        td {
+            color: var(--text-primary);
+            transition: color 0.3s ease;
         }
 
         tr:hover {
-            background: #f8f9fa;
+            background: var(--table-row-hover);
+            transition: background 0.3s ease;
         }
 
         tr.using-key {
-            background: #e8f5e9 !important;
+            background: var(--table-using-bg) !important;
             border-left: 3px solid #27ae60;
         }
 
         tr.using-key:hover {
-            background: #d4edda !important;
+            background: var(--table-using-hover) !important;
         }
 
         .status-badge {
@@ -171,18 +396,21 @@
         }
 
         .status-active {
-            background: #d4edda;
-            color: #155724;
+            background: var(--status-active-bg);
+            color: var(--status-active-text);
+            transition: background 0.3s ease, color 0.3s ease;
         }
 
         .status-insufficient {
-            background: #f8d7da;
-            color: #721c24;
+            background: var(--status-insufficient-bg);
+            color: var(--status-insufficient-text);
+            transition: background 0.3s ease, color 0.3s ease;
         }
 
         .status-error {
-            background: #fff3cd;
-            color: #856404;
+            background: var(--status-error-bg);
+            color: var(--status-error-text);
+            transition: background 0.3s ease, color 0.3s ease;
         }
 
         .btn-warning {
@@ -207,13 +435,15 @@
         .loading {
             text-align: center;
             padding: 20px;
-            color: #666;
+            color: var(--text-secondary);
+            transition: color 0.3s ease;
         }
 
         .empty {
             text-align: center;
             padding: 40px;
-            color: #999;
+            color: var(--text-secondary);
+            transition: color 0.3s ease;
         }
 
         .alert {
@@ -224,15 +454,17 @@
         }
 
         .alert-success {
-            background: #d4edda;
-            color: #155724;
-            border: 1px solid #c3e6cb;
+            background: var(--status-active-bg);
+            color: var(--status-active-text);
+            border: 1px solid var(--status-active-text);
+            transition: background 0.3s ease, color 0.3s ease, border-color 0.3s ease;
         }
 
         .alert-error {
-            background: #f8d7da;
-            color: #721c24;
-            border: 1px solid #f5c6cb;
+            background: var(--status-insufficient-bg);
+            color: var(--status-insufficient-text);
+            border: 1px solid var(--status-insufficient-text);
+            transition: background 0.3s ease, color 0.3s ease, border-color 0.3s ease;
         }
 
         .alert.show {
@@ -253,12 +485,14 @@
         }
 
         .password-box {
-            background: white;
+            background: var(--modal-bg);
             padding: 30px;
             border-radius: 12px;
-            box-shadow: 0 10px 40px rgba(0,0,0,0.2);
+            box-shadow: var(--shadow-lg);
             max-width: 400px;
             width: 90%;
+            color: var(--text-primary);
+            transition: background 0.3s ease, color 0.3s ease, box-shadow 0.3s ease;
         }
 
         .log-modal {
@@ -275,15 +509,17 @@
         }
 
         .log-box {
-            background: white;
+            background: var(--modal-bg);
             padding: 30px;
             border-radius: 12px;
-            box-shadow: 0 10px 40px rgba(0,0,0,0.2);
+            box-shadow: var(--shadow-lg);
             width: 90%;
             max-width: 900px;
             max-height: 80vh;
             display: flex;
             flex-direction: column;
+            color: var(--text-primary);
+            transition: background 0.3s ease, color 0.3s ease, box-shadow 0.3s ease;
         }
 
         .log-header {
@@ -292,7 +528,8 @@
             align-items: center;
             margin-bottom: 20px;
             padding-bottom: 15px;
-            border-bottom: 2px solid #eee;
+            border-bottom: 2px solid var(--border-color);
+            transition: border-color 0.3s ease;
         }
 
         .log-content {
@@ -300,24 +537,28 @@
             overflow-y: auto;
             font-family: 'Courier New', monospace;
             font-size: 13px;
-            background: #f8f9fa;
+            background: var(--table-header-bg);
             padding: 15px;
             border-radius: 6px;
             max-height: 60vh;
+            color: var(--text-primary);
+            transition: background 0.3s ease, color 0.3s ease;
         }
 
         .log-item {
             margin-bottom: 15px;
             padding: 10px;
-            background: white;
+            background: var(--container-bg);
             border-radius: 4px;
             border-left: 3px solid #e74c3c;
+            transition: background 0.3s ease;
         }
 
         .log-time {
-            color: #666;
+            color: var(--text-secondary);
             font-size: 12px;
             margin-bottom: 5px;
+            transition: color 0.3s ease;
         }
 
         .log-error {
@@ -328,17 +569,26 @@
 
         .password-box h2 {
             margin-bottom: 20px;
-            color: #333;
+            color: var(--text-primary);
             text-align: center;
+            transition: color 0.3s ease;
         }
 
         .password-box input {
             width: 100%;
             padding: 12px;
-            border: 1px solid #ddd;
+            border: 1px solid var(--input-border);
             border-radius: 6px;
             font-size: 14px;
             margin-bottom: 15px;
+            background: var(--input-bg);
+            color: var(--text-primary);
+            transition: background 0.3s ease, color 0.3s ease, border-color 0.3s ease;
+        }
+
+        .password-box input:focus {
+            outline: none;
+            border-color: #667eea;
         }
 
         .add-modal {
@@ -360,10 +610,10 @@
         }
 
         .add-box {
-            background: white;
+            background: var(--modal-bg);
             padding: 0;
             border-radius: 16px;
-            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            box-shadow: var(--shadow-lg);
             max-width: 700px;
             width: 90%;
             max-height: 90vh;
@@ -373,6 +623,7 @@
             flex-direction: column;
             overflow: hidden;
             animation: slideDown 0.3s ease-out;
+            transition: background 0.3s ease, box-shadow 0.3s ease;
         }
 
         @keyframes slideDown {
@@ -436,33 +687,37 @@
         .add-body .form-group label {
             display: block;
             margin-bottom: 8px;
-            color: #333;
+            color: var(--text-primary);
             font-weight: 600;
             font-size: 14px;
+            transition: color 0.3s ease;
         }
 
         .add-body .form-group textarea {
             width: 100%;
             padding: 12px;
-            border: 2px solid #e0e0e0;
+            border: 2px solid var(--input-border);
             border-radius: 8px;
             font-size: 14px;
             font-family: 'Courier New', monospace;
             transition: all 0.3s;
             min-height: 300px;
             resize: vertical;
+            background: var(--input-bg);
+            color: var(--text-primary);
         }
 
         .key-count {
             margin-top: 10px;
             padding: 8px 12px;
-            background: #e8f4f8;
+            background: var(--table-header-bg);
             border-radius: 6px;
             font-size: 13px;
-            color: #2c3e50;
+            color: var(--text-primary);
             display: flex;
             align-items: center;
             gap: 8px;
+            transition: background 0.3s ease, color 0.3s ease;
         }
 
         .key-count .count-number {
@@ -479,11 +734,12 @@
 
         .add-footer {
             padding: 20px 25px;
-            background: #f8f9fa;
-            border-top: 1px solid #e0e0e0;
+            background: var(--table-header-bg);
+            border-top: 1px solid var(--border-color);
             display: flex;
             justify-content: flex-end;
             gap: 12px;
+            transition: background 0.3s ease, border-color 0.3s ease;
         }
 
         .add-footer .btn {
@@ -506,12 +762,56 @@
             height: 20px;
             cursor: pointer;
             accent-color: #667eea;
+            background-color: var(--checkbox-bg);
+            border: 2px solid var(--checkbox-border);
+            border-radius: 4px;
+            transition: all 0.2s;
+            appearance: none;
+            -webkit-appearance: none;
+            -moz-appearance: none;
+            position: relative;
+        }
+
+        .key-checkbox:checked,
+        #selectAll:checked {
+            background-color: #667eea;
+            border-color: #667eea;
+        }
+
+        .key-checkbox:checked::after,
+        #selectAll:checked::after {
+            content: '✓';
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: white;
+            font-size: 14px;
+            font-weight: bold;
         }
 
         .key-checkbox:hover,
         #selectAll:hover {
             transform: scale(1.1);
-            transition: transform 0.2s;
+            border-color: #667eea;
+        }
+
+        [data-theme="dark"] .key-checkbox,
+        [data-theme="dark"] #selectAll {
+            accent-color: #64b5f6;
+            background-color: var(--checkbox-bg);
+            border-color: var(--checkbox-border);
+        }
+
+        [data-theme="dark"] .key-checkbox:checked,
+        [data-theme="dark"] #selectAll:checked {
+            background-color: #64b5f6;
+            border-color: #64b5f6;
+        }
+
+        [data-theme="dark"] .key-checkbox:hover,
+        [data-theme="dark"] #selectAll:hover {
+            border-color: #64b5f6;
         }
     </style>
 </head>
@@ -536,7 +836,7 @@
                 <button class="btn btn-danger" onclick="closeLogModal()" style="padding: 8px 16px;">关闭</button>
             </div>
             <div id="logContent" class="log-content">
-                <div style="text-align: center; color: #999; padding: 20px;">加载中...</div>
+                <div style="text-align: center; color: var(--text-secondary); padding: 20px;">加载中...</div>
             </div>
         </div>
     </div>
@@ -562,7 +862,7 @@
                 </form>
             </div>
             <div class="add-footer">
-                <button type="button" class="btn" onclick="closeAddModal()" style="background: #e0e0e0; color: #333;">取消</button>
+                <button type="button" class="btn" onclick="closeAddModal()" style="background: var(--table-header-bg); color: var(--text-primary); border: 1px solid var(--border-color);">取消</button>
                 <button type="submit" form="addForm" class="btn btn-primary">添加密钥</button>
             </div>
         </div>
@@ -573,30 +873,33 @@
         <div class="container">
             <div class="header">
                 <h1>🔑 硅基流动API管理</h1>
+                <button class="theme-toggle" id="themeToggle" title="切换暗黑模式">🌙</button>
             </div>
             <div class="content">
                 <div id="alert" class="alert"></div>
 
             <div class="table-container">
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; gap: 8px; flex-wrap: nowrap; overflow: hidden;">
-                    <div style="display: flex; align-items: center; gap: 12px; flex: 0 0 auto; min-width: 0; overflow: hidden;">
-                        <h2 style="margin: 0; color: #333; font-size: 18px; white-space: nowrap;">API密钥列表</h2>
-                        <button class="btn btn-primary" onclick="showAddModal()" style="padding: 6px 14px; font-size: 13px; white-space: nowrap; flex-shrink: 0;">+ 添加密钥</button>
-                        <div style="display: flex; align-items: center; gap: 6px; font-size: 12px; color: #555; background: #e8f4f8; padding: 4px 10px; border-radius: 4px; border-left: 3px solid #3498db; white-space: nowrap; flex-shrink: 0;">
-                            <span style="font-weight: 500;">API地址：</span>
-                            <span id="apiUrlText" style="font-family: 'Courier New', monospace; color: #2c3e50; font-size: 11px; max-width: 200px; overflow: hidden; text-overflow: ellipsis; display: inline-block;">加载中...</span>
-                            <button onclick="copyApiUrl()" class="btn btn-info btn-small" style="padding: 2px 6px; font-size: 10px; white-space: nowrap;">复制</button>
+                <div class="table-header-bar">
+                    <div class="table-header-left">
+                        <h2 class="table-title">API密钥列表</h2>
+                        <button class="btn btn-primary" onclick="showAddModal()">+ 添加密钥</button>
+                        <div class="api-url-box">
+                            <span class="api-url-label">API地址：</span>
+                            <span id="apiUrlText" class="api-url-text">加载中...</span>
+                            <button onclick="copyApiUrl()" class="btn btn-info btn-small">复制</button>
                         </div>
                     </div>
-                    <div style="display: flex; align-items: center; gap: 8px; flex: 0 0 auto; flex-wrap: nowrap; overflow: hidden;">
-                        <div style="font-size: 18px; font-weight: 600; display: flex; align-items: center; gap: 8px; white-space: nowrap; flex-shrink: 0;">
-                            <span style="color: #333;">总余额:</span>
-                            <span id="totalBalance" style="color: #27ae60; font-weight: 700; font-size: 22px;">¥0.00</span>
+                    <div class="table-header-right">
+                        <div class="balance-display">
+                            <span class="balance-label">总余额:</span>
+                            <span id="totalBalance" class="balance-amount">¥0.00</span>
                         </div>
-                        <button class="btn btn-info" onclick="batchQueryBalances()" id="batchQueryBtn" style="padding: 6px 10px; font-size: 12px; display: none; white-space: nowrap; flex-shrink: 0;">查询 (<span id="selectedQueryCount">0</span>)</button>
-                        <button class="btn btn-danger" onclick="batchDeleteKeys()" id="batchDeleteBtn" style="padding: 6px 10px; font-size: 12px; display: none; white-space: nowrap; flex-shrink: 0;">删除 (<span id="selectedDeleteCount">0</span>)</button>
-                        <button class="btn btn-primary" onclick="exportAllKeys()" style="padding: 6px 10px; font-size: 12px; white-space: nowrap; flex-shrink: 0;">导出</button>
-                        <button class="btn btn-info" onclick="queryAllBalances()" id="queryAllBtn" style="padding: 6px 10px; font-size: 12px; white-space: nowrap; flex-shrink: 0;">查询全部</button>
+                        <div class="action-buttons">
+                            <button class="btn btn-info" onclick="batchQueryBalances()" id="batchQueryBtn" style="display: none;">查询 (<span id="selectedQueryCount">0</span>)</button>
+                            <button class="btn btn-danger" onclick="batchDeleteKeys()" id="batchDeleteBtn" style="display: none;">删除 (<span id="selectedDeleteCount">0</span>)</button>
+                            <button class="btn btn-primary" onclick="exportAllKeys()">导出</button>
+                            <button class="btn btn-info" onclick="queryAllBalances()" id="queryAllBtn">查询全部</button>
+                        </div>
                     </div>
                 </div>
                 <div id="loading" class="loading">加载中...</div>
@@ -626,6 +929,39 @@
     </div>
 
     <script>
+        // 主题管理 - 立即执行，避免闪烁
+        (function() {
+            const savedTheme = localStorage.getItem('theme') || 'light';
+            document.documentElement.setAttribute('data-theme', savedTheme);
+            
+            function toggleTheme() {
+                const currentTheme = document.documentElement.getAttribute('data-theme') || 'light';
+                const newTheme = currentTheme === 'light' ? 'dark' : 'light';
+                document.documentElement.setAttribute('data-theme', newTheme);
+                localStorage.setItem('theme', newTheme);
+                updateThemeIcon(newTheme);
+            }
+
+            function updateThemeIcon(theme) {
+                const themeToggle = document.getElementById('themeToggle');
+                if (themeToggle) {
+                    themeToggle.textContent = theme === 'dark' ? '☀️' : '🌙';
+                    themeToggle.title = theme === 'dark' ? '切换到亮色模式' : '切换到暗黑模式';
+                }
+            }
+
+            // 暴露给全局
+            window.toggleTheme = toggleTheme;
+            window.updateThemeIcon = updateThemeIcon;
+            
+            // DOM加载后初始化图标
+            if (document.readyState === 'loading') {
+                document.addEventListener('DOMContentLoaded', () => updateThemeIcon(savedTheme));
+            } else {
+                updateThemeIcon(savedTheme);
+            }
+        })();
+
         // 获取存储的token
         function getAuthToken() {
             return localStorage.getItem('admin_token');
@@ -1518,7 +1854,7 @@
             try {
                 // 显示模态框
                 document.getElementById('logModal').style.display = 'flex';
-                document.getElementById('logContent').innerHTML = '<div style="text-align: center; color: #999; padding: 20px;">加载中...</div>';
+                document.getElementById('logContent').innerHTML = '<div style="text-align: center; color: var(--text-secondary); padding: 20px;">加载中...</div>';
 
                 const response = await fetch(`/api/manage/api-keys/${id}/logs`, {
                     headers: getAuthHeaders()
@@ -1536,7 +1872,7 @@
                     const logs = result.data;
                     
                     if (logs.length === 0) {
-                        document.getElementById('logContent').innerHTML = '<div style="text-align: center; color: #999; padding: 20px;">暂无错误日志</div>';
+                        document.getElementById('logContent').innerHTML = '<div style="text-align: center; color: var(--text-secondary); padding: 20px;">暂无错误日志</div>';
                     } else {
                         const logsHtml = logs.map(log => {
                             const time = formatChinaTime(log.timestamp);
@@ -1804,6 +2140,14 @@
             }
         });
 
+        // 绑定主题切换按钮
+        document.addEventListener('DOMContentLoaded', () => {
+            const themeToggle = document.getElementById('themeToggle');
+            if (themeToggle) {
+                themeToggle.addEventListener('click', window.toggleTheme);
+            }
+        });
+
         // 页面加载时检查认证并加载列表
         checkAuth();
         // 更新API地址显示
@@ -1815,4 +2159,5 @@
     </script>
 </body>
 </html>
+
 
