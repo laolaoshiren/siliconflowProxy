@@ -219,17 +219,30 @@ router.post('/chat/completions', apiAuth, async (req, res) => {
           // 成功：更新API key状态，增加调用次数
           keySuccess = true;
           requestSuccess = true;
-          await markApiKeyStatus(apiKeyId, 'active');
           await db.incrementCallCount(apiKeyId);
           await db.recordUsage(apiKeyId, true);
 
-          // 如果之前这个key被标记为错误，现在成功了，恢复为正常
+          // 检查余额，根据余额决定状态
           const currentKeyInfo = await db.getApiKeyById(apiKeyId);
-          if (currentKeyInfo && currentKeyInfo.status === 'error') {
-            await markApiKeyStatus(apiKeyId, 'active');
-            await db.updateApiKeyAvailability(apiKeyId, true);
-            await require('../utils/apiManager').refreshApiKeys();
-            console.log(`API Key ${apiKeyId} (${apiKeyName}) 已恢复为正常状态`);
+          if (currentKeyInfo) {
+            const balance = currentKeyInfo.balance !== null ? parseFloat(currentKeyInfo.balance) : null;
+            
+            // 如果余额<1，标记为不可用
+            if (balance !== null && balance < 1) {
+              await markApiKeyStatus(apiKeyId, 'insufficient', '余额不足');
+              await db.updateApiKeyAvailability(apiKeyId, false);
+              await require('../utils/apiManager').refreshApiKeys();
+              console.log(`API Key ${apiKeyId} (${apiKeyName}) 余额不足 (¥${balance.toFixed(2)})，已标记为不可用`);
+            } else {
+              // 余额>=1或余额未知，标记为可用
+              await markApiKeyStatus(apiKeyId, 'active');
+              // 如果之前这个key被标记为错误，现在成功了，恢复为正常
+              if (currentKeyInfo.status === 'error') {
+                await db.updateApiKeyAvailability(apiKeyId, true);
+                await require('../utils/apiManager').refreshApiKeys();
+                console.log(`API Key ${apiKeyId} (${apiKeyName}) 已恢复为正常状态`);
+              }
+            }
           }
 
           // 检查是否需要自动查询余额

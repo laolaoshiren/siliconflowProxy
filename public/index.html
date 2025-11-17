@@ -91,7 +91,6 @@
             background: var(--container-bg);
             border-radius: 12px;
             box-shadow: var(--shadow);
-            overflow: hidden;
             transition: background 0.3s ease, box-shadow 0.3s ease;
         }
 
@@ -149,6 +148,7 @@
             padding: 20px;
             background: var(--container-bg);
             transition: background 0.3s ease;
+            position: relative;
         }
 
 
@@ -228,6 +228,7 @@
         .table-container {
             overflow-x: hidden;
             width: 100%;
+            position: relative;
         }
 
         /* 表格头部工具栏样式 */
@@ -242,6 +243,12 @@
             border: 1px solid var(--border-color);
             border-radius: 8px;
             transition: background 0.3s ease, border-color 0.3s ease;
+            position: -webkit-sticky;
+            position: sticky;
+            top: 0;
+            z-index: 1000;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+            background: var(--container-bg);
         }
 
         .table-header-left {

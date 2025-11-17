@@ -132,19 +132,19 @@ router.get('/api-keys/:id/balance', adminAuth, async (req, res) => {
         await refreshApiKeys();
       } else {
         // 正常情况，更新余额
-        await db.updateApiKeyBalance(id, balanceInfo.balance);
-        
-        // 如果余额<1，自动改为不可用状态
-        if (balanceInfo.balance < 1) {
-          await db.updateApiKeyAvailability(id, false);
+      await db.updateApiKeyBalance(id, balanceInfo.balance);
+      
+      // 如果余额<1，自动改为不可用状态
+      if (balanceInfo.balance < 1) {
+        await db.updateApiKeyAvailability(id, false);
+        await refreshApiKeys();
+      } else {
+        // 余额>=1，确保可用状态正确
+        const currentKey = await db.getApiKeyById(id);
+        if (currentKey && (currentKey.is_available === 0 || currentKey.is_available === null)) {
+          // 如果之前不可用，现在余额充足，恢复为可用
+          await db.updateApiKeyAvailability(id, true);
           await refreshApiKeys();
-        } else {
-          // 余额>=1，确保可用状态正确
-          const currentKey = await db.getApiKeyById(id);
-          if (currentKey && (currentKey.is_available === 0 || currentKey.is_available === null)) {
-            // 如果之前不可用，现在余额充足，恢复为可用
-            await db.updateApiKeyAvailability(id, true);
-            await refreshApiKeys();
           }
         }
       }
@@ -430,7 +430,7 @@ router.post('/api-keys/:id/verify', adminAuth, async (req, res) => {
         data: response.data
       };
 
-      // 更新密钥状态为可用
+      // 验证成功后，只更新密钥状态为可用（不考虑余额）
       await db.updateApiKeyAvailability(id, true);
       await db.updateApiKeyStatus(id, 'active', null);
       
