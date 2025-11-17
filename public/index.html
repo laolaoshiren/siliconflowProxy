@@ -1164,6 +1164,7 @@
                     // 没有token，显示密码输入界面
                     showPasswordModal();
                 } else {
+                    currentKeysData = [];
                     // 不需要密码，直接显示主内容并加载数据
                     showMainContent();
                     loadApiKeys();
@@ -1256,6 +1257,16 @@
         // 加载API keys列表
         async function loadApiKeys() {
             try {
+                // 如果代理配置未加载，先加载代理配置（用于显示代理验证按钮）
+                if (proxyConfigs.length === 0 && typeof loadProxyConfig === 'function') {
+                    try {
+                        await loadProxyConfig();
+                    } catch (e) {
+                        // 代理配置加载失败不影响API密钥列表加载
+                        console.warn('加载代理配置失败:', e);
+                    }
+                }
+                
                 const response = await fetch('/api/manage/api-keys', {
                     headers: getAuthHeaders()
                 });
@@ -1270,9 +1281,10 @@
                 document.getElementById('loading').style.display = 'none';
                 
                 if (result.success && result.data.length > 0) {
+                    currentKeysData = result.data;
                     document.getElementById('keysTable').style.display = 'table';
                     document.getElementById('empty').style.display = 'none';
-                    renderTable(result.data);
+                    renderTable(currentKeysData);
                 } else {
                     document.getElementById('keysTable').style.display = 'none';
                     document.getElementById('empty').style.display = 'block';
@@ -1487,7 +1499,12 @@
                         <td>${lastUsed}</td>
                         <td style="text-align: center;">${key.error_count || 0}</td>
                         <td class="actions">
-                            <button class="btn btn-success btn-small" onclick="verifyApiKey(${key.id})" id="verify-btn-${key.id}">验证</button>
+                            <div style="display: inline-flex; gap: 4px; align-items: center;">
+                                <button class="btn btn-success btn-small" onclick="verifyApiKey(${key.id})" id="verify-btn-${key.id}">验证</button>
+                                ${proxyEnabled && proxyConfigs.length > 0 ? `
+                                    <button class="btn btn-success btn-small" onclick="showProxyVerifyDialog(${key.id})" id="proxy-verify-btn-${key.id}" title="通过代理验证" style="padding: 6px 8px; font-size: 11px;">🌐</button>
+                                ` : ''}
+                            </div>
                             <button class="btn btn-info btn-small" onclick="queryBalance(${key.id})" id="query-btn-${key.id}">查询余额</button>
                             <button class="btn btn-warning btn-small" onclick="viewErrorLogs(${key.id})" title="查看错误日志">日志</button>
                             <button class="btn btn-danger btn-small" onclick="deleteKey(${key.id})">删除</button>
@@ -1832,16 +1849,10 @@
             }
         }
 
-        // 验证API密钥
+        // 验证API密钥（可以选择是否使用代理）
         async function verifyApiKey(id, proxyId = null) {
             const btn = document.getElementById(`verify-btn-${id}`);
             if (!btn) return;
-            
-            // 如果代理功能开启且没有指定代理，显示选择对话框
-            if (proxyEnabled && proxyId === null && proxyConfigs.length > 0) {
-                showProxySelectDialog(id);
-                return;
-            }
             
             const originalText = btn.textContent;
             btn.disabled = true;
@@ -1884,45 +1895,88 @@
             }
         }
 
+        // 显示代理验证选择对话框
+        function showProxyVerifyDialog(keyId) {
+            showProxySelectDialog(keyId);
+        }
+
         function showProxySelectDialog(keyId) {
+            closeProxySelectDialog();
             const dialog = document.createElement('div');
+            dialog.id = 'proxySelectDialog';
             dialog.style.cssText = 'position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 1003;';
+            const proxyListHtml = proxyConfigs.length > 0 ? `
+                <div style="margin-bottom: 20px;">
+                    <label style="display: block; margin-bottom: 12px; color: var(--text-primary); font-weight: 600; font-size: 14px;">通过代理验证：</label>
+                    <div style="max-height: 300px; overflow-y: auto;">
+                        ${proxyConfigs.map(proxy => {
+                            const authInfo = proxy.username ? ` (${proxy.username}:***)` : ' (无需认证)';
+                            const isAvailable = proxy.is_available === 1;
+                            const statusBadge = isAvailable 
+                                ? '<span style="background: #27ae60; color: white; padding: 2px 6px; border-radius: 3px; font-size: 10px; margin-left: 6px;">可用</span>'
+                                : '<span style="background: #e74c3c; color: white; padding: 2px 6px; border-radius: 3px; font-size: 10px; margin-left: 6px;">不可用</span>';
+                            const verifyInfo = proxy.verify_ip ? ` - ${proxy.verify_ip} ${proxy.verify_address || ''}` : (proxy.verifyInfo ? ` - ${proxy.verifyInfo.ip || ''} ${proxy.verifyInfo.address || ''}` : '');
+                            const latencyInfo = proxy.verify_latency ? `<div style="font-size: 11px; opacity: 0.85;">延迟: ${proxy.verify_latency}ms</div>` : '';
+                            return `
+                                <button onclick="verifyApiKeyWithProxy(${keyId}, ${proxy.id})" 
+                                        style="width: 100%; padding: 12px; margin-bottom: 8px; background: ${isAvailable ? 'var(--btn-info-bg)' : '#95a5a6'}; color: white; border: none; border-radius: 6px; cursor: ${isAvailable ? 'pointer' : 'not-allowed'}; font-size: 13px; text-align: left; opacity: ${isAvailable ? '1' : '0.7'};"
+                                        ${!isAvailable ? 'disabled title="该代理当前不可用"' : ''}>
+                                    <div style="display: flex; align-items: center; justify-content: space-between;">
+                                        <div>
+                                            <strong>${proxy.type.toUpperCase()}</strong> ${proxy.host}:${proxy.port}${authInfo}${statusBadge}
+                                            ${verifyInfo ? `<div style="font-size: 11px; margin-top: 4px; opacity: 0.9;">${verifyInfo}</div>` : ''}
+                                            ${latencyInfo}
+                                        </div>
+                                        <span style="font-size: 16px;">🌐</span>
+                                    </div>
+                                </button>
+                            `;
+                        }).join('')}
+                    </div>
+                </div>
+            ` : '<p style="color: var(--text-secondary); text-align: center; padding: 20px;">暂无可用代理配置</p>';
+
             dialog.innerHTML = `
-                <div style="background: var(--container-bg); padding: 25px; border-radius: 12px; max-width: 500px; width: 90%; box-shadow: var(--shadow-lg);">
-                    <h3 style="margin: 0 0 20px 0; color: var(--text-primary); font-size: 18px;">选择验证方式</h3>
-                    <div style="margin-bottom: 15px;">
-                        <button onclick="verifyApiKey(${keyId}, null); this.closest('div[style*=\"position: fixed\"]').remove();" 
-                                style="width: 100%; padding: 12px; margin-bottom: 10px; background: var(--btn-primary-bg); color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 14px;">
-                            直接验证（不使用代理）
+                <div style="background: var(--container-bg); padding: 25px; border-radius: 12px; max-width: 600px; width: 90%; box-shadow: var(--shadow-lg);">
+                    <h3 style="margin: 0 0 20px 0; color: var(--text-primary); font-size: 18px;">🌐 选择验证方式</h3>
+                    <div style="margin-bottom: 20px;">
+                        <button onclick="handleDirectVerify(${keyId})" 
+                                style="width: 100%; padding: 12px; margin-bottom: 10px; background: var(--btn-primary-bg); color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 14px; display: flex; align-items: center; justify-content: center; gap: 8px;">
+                            <span>🔗</span>
+                            <span>直接验证（不使用代理）</span>
                         </button>
                     </div>
-                    ${proxyConfigs.length > 0 ? `
-                        <div style="margin-bottom: 15px;">
-                            <label style="display: block; margin-bottom: 10px; color: var(--text-primary); font-weight: 600;">通过代理验证：</label>
-                            ${proxyConfigs.map(proxy => {
-                                const authInfo = proxy.username ? ` (${proxy.username}:***)` : ' (无需认证)';
-                                const verifyInfo = proxy.verifyInfo ? ` - ${proxy.verifyInfo.ip || ''} ${proxy.verifyInfo.address || ''}` : '';
-                                return `
-                                    <button onclick="verifyApiKey(${keyId}, ${proxy.id}); this.closest('div[style*=\"position: fixed\"]').remove();" 
-                                            style="width: 100%; padding: 12px; margin-bottom: 8px; background: var(--btn-info-bg); color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 13px; text-align: left;">
-                                        ${proxy.type.toUpperCase()} ${proxy.host}:${proxy.port}${authInfo}${verifyInfo}
-                                    </button>
-                                `;
-                            }).join('')}
-                        </div>
-                    ` : ''}
-                    <button onclick="this.closest('div[style*=\"position: fixed\"]').remove();" 
+                    ${proxyListHtml}
+                    <button onclick="closeProxySelectDialog()" 
                             style="width: 100%; padding: 10px; background: var(--table-header-bg); color: var(--text-primary); border: 1px solid var(--border-color); border-radius: 6px; cursor: pointer; font-size: 14px;">
                         取消
                     </button>
                 </div>
             `;
-            document.body.appendChild(dialog);
             dialog.addEventListener('click', (e) => {
                 if (e.target === dialog) {
-                    dialog.remove();
+                    closeProxySelectDialog();
                 }
             });
+            document.body.appendChild(dialog);
+        }
+
+        function closeProxySelectDialog() {
+            const dialog = document.getElementById('proxySelectDialog');
+            if (dialog) {
+                dialog.remove();
+            }
+        }
+
+        function handleDirectVerify(keyId) {
+            closeProxySelectDialog();
+            verifyApiKey(keyId, null);
+        }
+
+        // 通过代理验证API密钥
+        async function verifyApiKeyWithProxy(keyId, proxyId) {
+            closeProxySelectDialog();
+            await verifyApiKey(keyId, proxyId);
         }
 
         // 查询余额
@@ -2409,6 +2463,12 @@
             }
         });
 
+        // 代理配置相关函数
+        let proxyConfigs = [];
+        let proxyEnabled = false;
+        let editingProxyId = null;
+        let currentKeysData = [];
+
         // 页面加载时检查认证并加载列表
         checkAuth();
         // 更新API地址显示
@@ -2417,11 +2477,10 @@
         startAutoRefresh();
         // 立即获取一次当前使用的API key
         fetchCurrentApiKey();
-
-        // 代理配置相关函数
-        let proxyConfigs = [];
-        let proxyEnabled = false;
-        let editingProxyId = null;
+        // 加载代理配置（用于显示代理验证按钮）- 异步加载，不阻塞页面
+        if (typeof loadProxyConfig === 'function') {
+            loadProxyConfig();
+        }
 
         async function showProxyModal() {
             const modal = document.getElementById('proxyModal');
@@ -2454,6 +2513,9 @@
                     document.getElementById('proxyEnabled').checked = proxyEnabled;
                     renderProxyList();
                     updateProxyStateInfo(result.data.activeState);
+                    if (currentKeysData.length > 0) {
+                        renderTable(currentKeysData);
+                    }
                 }
             } catch (error) {
                 console.error('加载代理配置失败:', error);
@@ -2482,6 +2544,9 @@
                 if (result.success) {
                     proxyEnabled = enabled;
                     showAlert(result.message, 'success');
+                    if (currentKeysData.length > 0) {
+                        renderTable(currentKeysData);
+                    }
                 } else {
                     document.getElementById('proxyEnabled').checked = !enabled;
                     showAlert(result.message || '设置失败', 'error');
