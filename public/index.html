@@ -86,7 +86,7 @@
         }
 
         .container {
-            max-width: 1200px;
+            max-width: 1600px;
             margin: 0 auto;
             background: var(--container-bg);
             border-radius: 12px;
@@ -226,7 +226,8 @@
         }
 
         .table-container {
-            overflow-x: auto;
+            overflow-x: hidden;
+            width: 100%;
         }
 
         /* 表格头部工具栏样式 */
@@ -352,11 +353,12 @@
             width: 100%;
             border-collapse: collapse;
             margin-top: 20px;
+            table-layout: fixed;
         }
 
         th, td {
             padding: 12px;
-            text-align: left;
+            text-align: center;
             border-bottom: 1px solid var(--border-color);
             transition: border-color 0.3s ease;
         }
@@ -366,11 +368,19 @@
             font-weight: 600;
             color: var(--text-primary);
             transition: background 0.3s ease, color 0.3s ease;
+            white-space: nowrap;
+            text-align: center;
         }
 
         td {
             color: var(--text-primary);
             transition: color 0.3s ease;
+            white-space: nowrap;
+        }
+        
+        /* 所有列都完整显示，不截断 */
+        td {
+            overflow: visible;
         }
 
         tr:hover {
@@ -422,17 +432,24 @@
             background: #e67e22;
         }
 
+        td.actions {
+            width: 340px;
+        }
+
         .actions {
             white-space: nowrap;
             display: flex;
             gap: 6px;
             flex-wrap: nowrap;
             align-items: center;
+            width: 100%;
+            justify-content: center;
         }
 
         .actions .btn {
             flex-shrink: 0;
             white-space: nowrap;
+            min-width: 60px;
         }
 
         .btn-small {
@@ -440,6 +457,8 @@
             font-size: 12px;
             white-space: nowrap;
             flex-shrink: 0;
+            min-width: 60px;
+            text-align: center;
         }
 
         .loading {
@@ -456,11 +475,42 @@
             transition: color 0.3s ease;
         }
 
+        /* 全局固定定位的alert容器 */
+        .alert-container {
+            position: fixed;
+            top: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 10000;
+            max-width: 600px;
+            width: calc(100% - 40px);
+            pointer-events: none;
+            display: flex;
+            flex-direction: column;
+            align-items: stretch;
+            gap: 10px;
+        }
+
         .alert {
-            padding: 12px 16px;
-            border-radius: 6px;
-            margin-bottom: 20px;
+            padding: 14px 20px;
+            border-radius: 8px;
             display: none;
+            box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+            pointer-events: auto;
+            animation: slideDown 0.3s ease-out;
+            word-wrap: break-word;
+            line-height: 1.5;
+        }
+
+        @keyframes slideDown {
+            from {
+                opacity: 0;
+                transform: translateY(-20px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
         }
 
         .alert-success {
@@ -848,6 +898,9 @@
     </style>
 </head>
 <body>
+    <!-- 全局Alert容器 - 固定在顶部 -->
+    <div id="alertContainer" class="alert-container"></div>
+
     <!-- 密码输入界面 -->
     <div id="passwordModal" class="password-modal" style="display: none;">
         <div class="password-box">
@@ -908,12 +961,10 @@
                 <button class="theme-toggle" id="themeToggle" title="切换暗黑模式">🌙</button>
             </div>
             <div class="content">
-                <div id="alert" class="alert"></div>
-
             <div class="table-container">
                 <div class="table-header-bar">
                     <div class="table-header-left">
-                        <h2 class="table-title">API密钥列表</h2>
+                        <!-- <h2 class="table-title">API密钥列表</h2> -->
                         <button class="btn btn-primary" onclick="showAddModal()">+ 添加密钥</button>
                         <div class="api-url-box">
                             <span class="api-url-label">API地址：</span>
@@ -939,18 +990,18 @@
                 <table id="keysTable" style="display: none;">
                     <thead>
                         <tr>
-                            <th style="width: 50px;">
+                            <th style="width: 50px; min-width: 50px;">
                                 <input type="checkbox" id="selectAll" onchange="toggleSelectAll(this)" title="全选/取消全选">
                             </th>
-                            <th>序号</th>
-                            <th>API Key</th>
-                            <th>可用状态</th>
-                            <th>余额</th>
-                            <th>调用次数</th>
-                            <th>创建时间</th>
-                            <th>最后使用</th>
-                            <th>错误次数</th>
-                            <th>操作</th>
+                            <th style="width: 70px; min-width: 70px;">序号</th>
+                            <th style="width: 250px; min-width: 250px;">API Key</th>
+                            <th style="width: 100px; min-width: 100px;">可用状态</th>
+                            <th style="width: 100px; min-width: 100px;">余额</th>
+                            <th style="width: 100px; min-width: 100px;">调用次数</th>
+                            <th style="width: 170px; min-width: 170px;">创建时间</th>
+                            <th style="width: 170px; min-width: 170px;">最后使用</th>
+                            <th style="width: 100px; min-width: 100px;">错误次数</th>
+                            <th style="width: 340px; min-width: 340px;">操作</th>
                         </tr>
                     </thead>
                     <tbody id="keysTableBody">
@@ -1090,11 +1141,26 @@
 
         // 显示提示消息
         function showAlert(message, type = 'success') {
-            const alert = document.getElementById('alert');
+            const alertContainer = document.getElementById('alertContainer');
+            if (!alertContainer) return;
+            
+            // 创建新的alert元素
+            const alert = document.createElement('div');
             alert.className = `alert alert-${type} show`;
             alert.textContent = message;
+            
+            // 添加到容器
+            alertContainer.appendChild(alert);
+            
+            // 3秒后自动移除
             setTimeout(() => {
                 alert.classList.remove('show');
+                // 等待动画完成后移除元素
+                setTimeout(() => {
+                    if (alert.parentNode) {
+                        alert.parentNode.removeChild(alert);
+                    }
+                }, 300);
             }, 3000);
         }
 
@@ -1359,7 +1425,7 @@
                         <td style="text-align: center;">
                             <input type="checkbox" class="key-checkbox" value="${key.id}" onchange="updateBatchDeleteButton()">
                         </td>
-                        <td>${index + 1}</td>
+                        <td style="text-align: center;">${index + 1}</td>
                         <td id="api-key-cell-${key.id}" style="cursor: pointer; user-select: none;" onclick="copyApiKey(${key.id})" title="点击复制完整密钥">${escapeHtml(key.api_key)}${usingIndicator}</td>
                         <td>
                             <span class="status-badge ${availableClass}" style="cursor: pointer;" onclick="toggleAvailability(${key.id})" title="点击切换状态">${availableText}</span>
@@ -1367,10 +1433,10 @@
                         <td>
                             <span class="balance-text ${balanceClass}" id="balance-${key.id}">${balanceDisplay}</span>
                         </td>
-                        <td>${key.call_count || 0}</td>
+                        <td style="text-align: center;">${key.call_count || 0}</td>
                         <td>${createdDate}</td>
                         <td>${lastUsed}</td>
-                        <td>${key.error_count || 0}</td>
+                        <td style="text-align: center;">${key.error_count || 0}</td>
                         <td class="actions">
                             <button class="btn btn-success btn-small" onclick="verifyApiKey(${key.id})" id="verify-btn-${key.id}">验证</button>
                             <button class="btn btn-info btn-small" onclick="queryBalance(${key.id})" id="query-btn-${key.id}">查询余额</button>
@@ -1724,7 +1790,7 @@
             
             const originalText = btn.textContent;
             btn.disabled = true;
-            btn.textContent = '验证中...';
+            btn.textContent = '验证中';
             
             try {
                 const response = await fetch(`/api/manage/api-keys/${id}/verify`, {

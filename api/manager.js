@@ -383,12 +383,22 @@ router.post('/api-keys/:id/verify', adminAuth, async (req, res) => {
     const SILICONFLOW_BASE_URL = 'https://api.siliconflow.cn/v1';
     
     // 测试请求体
+    // 获取当前时间并格式化
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = String(now.getMonth() + 1).padStart(2, '0');
+    const day = String(now.getDate()).padStart(2, '0');
+    const hours = String(now.getHours()).padStart(2, '0');
+    const minutes = String(now.getMinutes()).padStart(2, '0');
+    const seconds = String(now.getSeconds()).padStart(2, '0');
+    const timeString = `${year}/${month}/${day} ${hours}:${minutes}:${seconds}`;
+    
     const testRequest = {
       model: 'deepseek-ai/DeepSeek-V3.2-Exp',
       messages: [
         {
           role: 'user',
-          content: '你好'
+          content: `你好，当前时间是：${timeString}`
         }
       ],
       max_tokens: 10,
