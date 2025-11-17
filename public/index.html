@@ -564,96 +564,252 @@
 
         .log-modal {
             position: fixed;
-            top: 0;
-            left: 0;
-            right: 0;
-            bottom: 0;
-            background: rgba(0, 0, 0, 0.5);
-            display: flex;
+            inset: 0;
+            background: rgba(0, 0, 0, 0.6);
+            display: none;
             align-items: center;
             justify-content: center;
-            z-index: 1001;
+            padding: 20px;
+            z-index: 1100;
         }
 
-        .log-box {
-            background: var(--modal-bg);
-            padding: 30px;
-            border-radius: 12px;
+        .log-panel {
+            width: 100%;
+            max-width: 1200px;
+            background: var(--container-bg);
+            border-radius: 16px;
             box-shadow: var(--shadow-lg);
-            width: 90%;
-            max-width: 900px;
-            max-height: 80vh;
             display: flex;
             flex-direction: column;
-            color: var(--text-primary);
-            transition: background 0.3s ease, color 0.3s ease, box-shadow 0.3s ease;
+            overflow: hidden;
         }
 
-        .log-header {
+        .log-panel-header {
+            padding: 18px 24px;
+            border-bottom: 1px solid var(--border-color);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 16px;
+        }
+
+        .log-panel-title {
+            margin: 0;
+            font-size: 20px;
+            color: var(--text-primary);
+        }
+
+        .log-panel-subtitle {
+            margin: 4px 0 0;
+            font-size: 13px;
+            color: var(--text-secondary);
+        }
+
+        .log-close-btn {
+            background: none;
+            border: none;
+            font-size: 24px;
+            color: var(--text-secondary);
+            cursor: pointer;
+        }
+
+        .log-panel-body {
+            padding: 0 24px 24px;
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+        }
+
+        .log-table-wrapper {
+            overflow-x: auto;
+        }
+
+        .log-table {
+            width: 100%;
+            border-collapse: collapse;
+            table-layout: fixed;
+        }
+
+        .log-table th,
+        .log-table td {
+            padding: 12px 10px;
+            font-size: 13px;
+            text-align: center;
+            border-bottom: 1px solid var(--border-color);
+            white-space: nowrap;
+        }
+
+        .log-table th {
+            background: var(--table-header-bg);
+            font-weight: 600;
+            color: var(--text-primary);
+            position: sticky;
+            top: 0;
+            z-index: 5;
+        }
+
+        .log-table tbody tr:hover {
+            background: var(--table-row-hover);
+        }
+
+        .status-badge {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            min-width: 48px;
+            padding: 4px 10px;
+            border-radius: 999px;
+            font-size: 12px;
+            font-weight: 600;
+        }
+
+        .status-success {
+            background: rgba(39, 174, 96, 0.15);
+            color: #27ae60;
+        }
+
+        .status-fail {
+            background: rgba(231, 76, 60, 0.12);
+            color: #e74c3c;
+        }
+
+        .response-pill {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            padding: 4px 10px;
+            border-radius: 8px;
+            font-size: 12px;
+            background: rgba(52, 152, 219, 0.15);
+            color: #3498db;
+            font-weight: 600;
+        }
+
+        .log-pagination {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            flex-wrap: wrap;
+        }
+
+        .log-page-info {
+            font-size: 13px;
+            color: var(--text-secondary);
+        }
+
+        .log-page-actions {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .log-page-actions button,
+        .log-page-actions select {
+            padding: 6px 12px;
+            border-radius: 6px;
+            border: 1px solid var(--border-color);
+            background: var(--container-bg);
+            color: var(--text-primary);
+            cursor: pointer;
+        }
+
+        .log-page-actions button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .log-empty {
+            text-align: center;
+            padding: 32px 0;
+            color: var(--text-secondary);
+        }
+
+        .log-detail-modal {
+            position: fixed;
+            inset: 0;
+            background: rgba(0, 0, 0, 0.55);
+            display: none;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+            z-index: 1200;
+        }
+
+        .log-detail-box {
+            width: 100%;
+            max-width: 800px;
+            background: var(--container-bg);
+            border-radius: 14px;
+            box-shadow: var(--shadow-lg);
+            max-height: 90vh;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .log-detail-header {
+            padding: 18px 24px;
+            border-bottom: 1px solid var(--border-color);
             display: flex;
             justify-content: space-between;
             align-items: center;
-            margin-bottom: 20px;
-            padding-bottom: 15px;
-            border-bottom: 2px solid var(--border-color);
-            transition: border-color 0.3s ease;
         }
 
-        .log-content {
-            flex: 1;
+        .log-detail-content {
+            padding: 20px 24px 24px;
             overflow-y: auto;
-            font-family: 'Courier New', monospace;
-            font-size: 13px;
-            background: var(--table-header-bg);
-            padding: 15px;
-            border-radius: 6px;
-            max-height: 60vh;
-            color: var(--text-primary);
-            transition: background 0.3s ease, color 0.3s ease;
         }
 
-        .log-item {
-            margin-bottom: 12px;
-            padding: 12px;
-            border-radius: 6px;
-            background: var(--table-header-bg);
-            border-left: 3px solid var(--border-color);
-            transition: background 0.3s ease, border-color 0.3s ease;
+        .detail-section {
+            margin-bottom: 18px;
         }
 
-        .log-item-success {
-            border-left-color: #27ae60;
-            background: rgba(39, 174, 96, 0.1);
-        }
-
-        [data-theme="dark"] .log-item-success {
-            background: rgba(39, 174, 96, 0.15);
-        }
-
-        .log-item-error {
-            border-left-color: #e74c3c;
-            background: rgba(231, 76, 60, 0.1);
-        }
-
-        [data-theme="dark"] .log-item-error {
-            background: rgba(231, 76, 60, 0.15);
-        }
-
-        .log-time {
+        .detail-section h4 {
+            margin: 0 0 10px;
+            font-size: 15px;
             color: var(--text-secondary);
-            font-size: 12px;
-            margin-bottom: 5px;
-            transition: color 0.3s ease;
         }
 
-        .log-content-text {
+        .detail-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 12px;
+        }
+
+        .detail-grid .item {
+            background: var(--table-header-bg);
+            border-radius: 8px;
+            padding: 10px 12px;
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+
+        .detail-grid .item label {
+            font-size: 12px;
+            color: var(--text-secondary);
+        }
+
+        .detail-grid .item span {
+            font-size: 13px;
             color: var(--text-primary);
             word-break: break-all;
-            white-space: pre-wrap;
-            font-family: 'Courier New', monospace;
+        }
+
+        .json-block {
+            background: #0f172a;
+            color: #d6f3ff;
+            border-radius: 8px;
+            padding: 16px;
+            overflow-x: auto;
+            font-family: 'Fira Code', Consolas, 'Courier New', monospace;
             font-size: 13px;
-            line-height: 1.6;
-            transition: color 0.3s ease;
+            line-height: 1.5;
+        }
+
+        [data-theme="dark"] .json-block {
+            background: #0b1220;
+            color: #ccecff;
         }
 
         .password-box h2 {
@@ -920,15 +1076,68 @@
         </div>
     </div>
 
-    <!-- 错误日志查看界面 -->
+    <!-- 请求日志查看界面 -->
     <div id="logModal" class="log-modal" style="display: none;">
-        <div class="log-box">
-            <div class="log-header">
-                <h2>📋 错误日志</h2>
-                <button class="btn btn-danger" onclick="closeLogModal()" style="padding: 8px 16px;">关闭</button>
+        <div class="log-panel">
+            <div class="log-panel-header">
+                <div>
+                    <h2 class="log-panel-title">请求日志</h2>
+                    <p class="log-panel-subtitle" id="logSubtitle">请选择需要查看的API Key</p>
+                </div>
+                <button class="log-close-btn" onclick="closeLogModal()" aria-label="关闭日志">×</button>
             </div>
-            <div id="logContent" class="log-content">
-                <div style="text-align: center; color: var(--text-secondary); padding: 20px;">加载中...</div>
+            <div class="log-panel-body">
+                <div class="log-table-wrapper">
+                    <table class="log-table">
+                        <thead>
+                            <tr>
+                                <th>时间</th>
+                                <th>状态</th>
+                                <th>请求类型</th>
+                                <th>响应类型</th>
+                                <th>状态码</th>
+                                <th>耗时(ms)</th>
+                                <th>聚合分组</th>
+                                <th>分组</th>
+                                <th>模型</th>
+                                <th>操作</th>
+                            </tr>
+                        </thead>
+                        <tbody id="logTableBody">
+                            <tr>
+                                <td colspan="10" class="log-empty">暂无数据</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+                <div class="log-pagination">
+                    <div class="log-page-info" id="logPageInfo">共 0 条记录</div>
+                    <div class="log-page-actions">
+                        <label style="font-size: 12px; color: var(--text-secondary); display: flex; align-items: center; gap: 4px;">
+                            每页
+                            <select id="logPageSizeSelect" onchange="changeLogPageSize(this.value)">
+                                <option value="15">15条</option>
+                                <option value="30">30条</option>
+                                <option value="50">50条</option>
+                            </select>
+                        </label>
+                        <button id="logPrevPage" onclick="changeLogPage(-1)">上一页</button>
+                        <button id="logNextPage" onclick="changeLogPage(1)">下一页</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 请求详情 -->
+    <div id="logDetailModal" class="log-detail-modal" style="display: none;">
+        <div class="log-detail-box">
+            <div class="log-detail-header">
+                <h3 style="margin: 0; font-size: 18px;">请求详情</h3>
+                <button class="log-close-btn" onclick="closeLogDetailModal()" aria-label="关闭详情">×</button>
+            </div>
+            <div id="logDetailContent" class="log-detail-content">
+                <div class="log-empty">暂无详情</div>
             </div>
         </div>
     </div>
@@ -2144,14 +2353,40 @@
             }
         }
 
-        // 查看错误日志
-        async function viewErrorLogs(id) {
-            try {
-                // 显示模态框
-                document.getElementById('logModal').style.display = 'flex';
-                document.getElementById('logContent').innerHTML = '<div style="text-align: center; color: var(--text-secondary); padding: 20px;">加载中...</div>';
+        const logModalState = {
+            apiKeyId: null,
+            page: 1,
+            pageSize: 15,
+            total: 0,
+            totalPages: 1,
+            records: [],
+            loading: false
+        };
 
-                const response = await fetch(`/api/manage/api-keys/${id}/logs`, {
+        function updateLogSubtitle(id) {
+            const subtitle = document.getElementById('logSubtitle');
+            if (subtitle) {
+                subtitle.textContent = `API Key #${id} 请求日志`;
+            }
+        }
+
+        async function viewErrorLogs(id) {
+            logModalState.apiKeyId = id;
+            logModalState.page = 1;
+            logModalState.records = [];
+            updateLogSubtitle(id);
+            document.getElementById('logModal').style.display = 'flex';
+            setLogTableMessage('加载中...');
+            await loadApiKeyLogs(1);
+        }
+
+        async function loadApiKeyLogs(page = logModalState.page) {
+            if (!logModalState.apiKeyId) return;
+            logModalState.page = page;
+            logModalState.loading = true;
+            setLogTableMessage('加载中...');
+            try {
+                const response = await fetch(`/api/manage/api-keys/${logModalState.apiKeyId}/logs?page=${logModalState.page}&pageSize=${logModalState.pageSize}`, {
                     headers: getAuthHeaders()
                 });
 
@@ -2162,87 +2397,191 @@
                 }
 
                 const result = await response.json();
-                
-                if (result.success) {
-                    const logs = result.data;
-                    
-                    if (logs.length === 0) {
-                        document.getElementById('logContent').innerHTML = '<div style="text-align: center; color: var(--text-secondary); padding: 20px;">暂无日志</div>';
-                    } else {
-                        const logsHtml = logs.map(log => {
-                            const time = formatChinaTime(log.timestamp);
-                            let logText = log.error || '未知';
-                            let isSuccess = log.success === 1;
-                            let logClass = isSuccess ? 'log-item-success' : 'log-item-error';
-                            let logIcon = isSuccess ? '✅' : '❌';
-                            
-                            // 尝试解析JSON格式的日志信息
-                            try {
-                                const logObj = JSON.parse(logText);
-                                
-                                // 检查是否是验证测试日志
-                                if (logObj.type === 'verify_test') {
-                                    if (isSuccess && logObj.response) {
-                                        logText = `验证测试成功\n\n模型: ${logObj.model}\n状态码: ${logObj.response.status}\n状态文本: ${logObj.response.statusText}\n\n响应数据:\n${JSON.stringify(logObj.response.data, null, 2)}`;
-                                    } else if (!isSuccess) {
-                                        if (logObj.upstream_error) {
-                                            if (typeof logObj.upstream_error === 'object') {
-                                                logText = `验证测试失败\n\n模型: ${logObj.model}\n状态码: ${logObj.status || 'N/A'}\n状态文本: ${logObj.statusText || 'N/A'}\n\n上游错误信息:\n${JSON.stringify(logObj.upstream_error, null, 2)}\n\n错误消息: ${logObj.error_message || 'N/A'}`;
-                                            } else {
-                                                logText = `验证测试失败\n\n模型: ${logObj.model}\n状态码: ${logObj.status || 'N/A'}\n状态文本: ${logObj.statusText || 'N/A'}\n\n上游错误信息: ${logObj.upstream_error}\n\n错误消息: ${logObj.error_message || 'N/A'}`;
-                                            }
-                                        } else {
-                                            logText = `验证测试失败\n\n模型: ${logObj.model}\n错误消息: ${logObj.error_message || 'N/A'}\n\n详细信息:\n${JSON.stringify(logObj, null, 2)}`;
-                                        }
-                                    }
-                                } else {
-                                    // 普通错误日志
-                                    if (logObj.upstream_error) {
-                                        if (typeof logObj.upstream_error === 'object') {
-                                            logText = `上游错误信息:\n${JSON.stringify(logObj.upstream_error, null, 2)}\n\n状态码: ${logObj.status || 'N/A'}\n状态文本: ${logObj.statusText || 'N/A'}`;
-                                        } else {
-                                            logText = `上游错误信息: ${logObj.upstream_error}\n\n状态码: ${logObj.status || 'N/A'}\n状态文本: ${logObj.statusText || 'N/A'}`;
-                                        }
-                                    } else if (logObj.data) {
-                                        logText = JSON.stringify(logObj, null, 2);
-                                    } else {
-                                        logText = JSON.stringify(logObj, null, 2);
-                                    }
-                                }
-                            } catch (e) {
-                                // 不是JSON，直接使用
-                            }
-                            
-                            return `
-                                <div class="log-item ${logClass}">
-                                    <div class="log-time">${time} ${logIcon}</div>
-                                    <div class="log-content-text">${escapeHtml(logText)}</div>
-                                </div>
-                            `;
-                        }).join('');
-                        
-                        document.getElementById('logContent').innerHTML = logsHtml;
-                    }
-                } else {
-                    document.getElementById('logContent').innerHTML = `<div style="text-align: center; color: #e74c3c; padding: 20px;">${result.message || '加载失败'}</div>`;
+                if (!result.success) {
+                    setLogTableMessage(result.message || '加载失败', true);
+                    return;
                 }
+
+                logModalState.records = result.data || [];
+                logModalState.total = result.pagination?.total || 0;
+                logModalState.totalPages = result.pagination?.totalPages || 1;
+                renderLogTableRows();
+                updateLogPagination();
             } catch (error) {
-                document.getElementById('logContent').innerHTML = `<div style="text-align: center; color: #e74c3c; padding: 20px;">加载失败: ${error.message}</div>`;
+                console.error('加载日志失败:', error);
+                setLogTableMessage(`加载失败：${error.message}`, true);
+            } finally {
+                logModalState.loading = false;
             }
         }
 
-        // 关闭日志模态框
+        function setLogTableMessage(message, isError = false) {
+            const tbody = document.getElementById('logTableBody');
+            if (!tbody) return;
+            tbody.innerHTML = `
+                <tr>
+                    <td colspan="10" class="log-empty" style="${isError ? 'color:#e74c3c;' : ''}">${message}</td>
+                </tr>
+            `;
+        }
+
+        function renderLogTableRows() {
+            const tbody = document.getElementById('logTableBody');
+            if (!tbody) return;
+
+            if (!logModalState.records.length) {
+                setLogTableMessage('暂无日志');
+                return;
+            }
+
+            const rows = logModalState.records.map(log => {
+                const statusClass = log.success ? 'status-success' : 'status-fail';
+                return `
+                    <tr>
+                        <td>${formatChinaTime(log.timestamp)}</td>
+                        <td><span class="status-badge ${statusClass}">${log.success ? '成功' : '失败'}</span></td>
+                        <td>${log.request_type || '-'}</td>
+                        <td><span class="response-pill">${log.response_type || '-'}</span></td>
+                        <td>${log.status_code ?? '-'}</td>
+                        <td>${formatDurationValue(log.duration_ms)}</td>
+                        <td>-</td>
+                        <td>-</td>
+                        <td>${log.model || '未知'}</td>
+                        <td><button class="btn btn-info btn-small" style="padding: 6px 12px;" onclick="openLogDetail(${log.id})">详情</button></td>
+                    </tr>
+                `;
+            }).join('');
+
+            tbody.innerHTML = rows;
+        }
+
+        function updateLogPagination() {
+            const info = document.getElementById('logPageInfo');
+            if (info) {
+                info.textContent = `共 ${logModalState.total} 条记录，第 ${logModalState.page} / ${logModalState.totalPages} 页`;
+            }
+
+            const prevBtn = document.getElementById('logPrevPage');
+            const nextBtn = document.getElementById('logNextPage');
+            if (prevBtn) prevBtn.disabled = logModalState.page <= 1 || logModalState.loading;
+            if (nextBtn) nextBtn.disabled = logModalState.page >= logModalState.totalPages || logModalState.loading;
+
+            const pageSizeSelect = document.getElementById('logPageSizeSelect');
+            if (pageSizeSelect) {
+                pageSizeSelect.value = String(logModalState.pageSize);
+            }
+        }
+
+        function changeLogPage(delta) {
+            if (logModalState.loading) return;
+            const targetPage = logModalState.page + delta;
+            if (targetPage < 1 || targetPage > logModalState.totalPages) return;
+            loadApiKeyLogs(targetPage);
+        }
+
+        function changeLogPageSize(value) {
+            const size = parseInt(value, 10);
+            if (isNaN(size) || size <= 0) return;
+            logModalState.pageSize = size;
+            logModalState.page = 1;
+            loadApiKeyLogs(1);
+        }
+
         function closeLogModal() {
             document.getElementById('logModal').style.display = 'none';
+            logModalState.apiKeyId = null;
+            logModalState.records = [];
+            closeLogDetailModal();
         }
 
-        // 点击模态框外部关闭
-        document.addEventListener('click', (e) => {
-            const logModal = document.getElementById('logModal');
-            if (e.target === logModal) {
-                closeLogModal();
+        function openLogDetail(logId) {
+            const log = logModalState.records.find(item => item.id === logId);
+            if (!log) return;
+
+            const detailModal = document.getElementById('logDetailModal');
+            const detailContent = document.getElementById('logDetailContent');
+            const detailData = log.detail || safeJsonParse(log.detail_raw) || { message: '无详细数据' };
+            const proxyText = formatProxyInfo(log.proxy_info);
+
+            detailContent.innerHTML = `
+                <div class="detail-section">
+                    <h4>基础信息</h4>
+                    <div class="detail-grid">
+                        <div class="item"><label>时间</label><span>${formatChinaTime(log.timestamp)}</span></div>
+                        <div class="item"><label>状态</label><span>${log.success ? '成功' : '失败'}</span></div>
+                        <div class="item"><label>状态码</label><span>${log.status_code ?? '-'}</span></div>
+                        <div class="item"><label>耗时</label><span>${formatDuration(log.duration_ms)}</span></div>
+                        <div class="item"><label>响应类型</label><span>${log.response_type || '-'}</span></div>
+                        <div class="item"><label>模型</label><span>${log.model || '未知'}</span></div>
+                        <div class="item"><label>客户端IP</label><span>${log.client_ip || '未知'}</span></div>
+                        <div class="item"><label>代理</label><span>${proxyText}</span></div>
+                    </div>
+                </div>
+                <div class="detail-section">
+                    <h4>请求信息</h4>
+                    <div class="detail-grid">
+                        <div class="item"><label>请求类型</label><span>${log.request_type || '-'}</span></div>
+                        <div class="item"><label>请求路径</label><span>${log.request_path || '-'}</span></div>
+                        <div class="item"><label>上游地址</label><span>${log.upstream_url || '-'}</span></div>
+                        <div class="item"><label>请求ID</label><span>${log.request_id || '-'}</span></div>
+                    </div>
+                </div>
+                <div class="detail-section">
+                    <h4>日志内容</h4>
+                    <div class="json-block">${escapeHtml(JSON.stringify(detailData, null, 2))}</div>
+                </div>
+            `;
+
+            detailModal.style.display = 'flex';
+        }
+
+        function closeLogDetailModal() {
+            document.getElementById('logDetailModal').style.display = 'none';
+        }
+
+        function formatDurationValue(ms) {
+            if (ms === null || ms === undefined) return '-';
+            return ms.toLocaleString();
+        }
+
+        function formatDuration(ms) {
+            if (ms === null || ms === undefined) return '-';
+            return `${ms.toLocaleString()} ms`;
+        }
+
+        function formatProxyInfo(proxy) {
+            if (!proxy) return '未使用';
+            const type = proxy.type ? proxy.type.toUpperCase() : '';
+            return `${type} ${proxy.host || '-'}:${proxy.port || '-'}`;
+        }
+
+        function safeJsonParse(value) {
+            if (!value) return null;
+            if (typeof value === 'object') return value;
+            try {
+                return JSON.parse(value);
+            } catch (error) {
+                return null;
             }
-        });
+        }
+
+        const logModalElement = document.getElementById('logModal');
+        if (logModalElement) {
+            logModalElement.addEventListener('click', (e) => {
+                if (e.target === logModalElement) {
+                    closeLogModal();
+                }
+            });
+        }
+
+        const logDetailElement = document.getElementById('logDetailModal');
+        if (logDetailElement) {
+            logDetailElement.addEventListener('click', (e) => {
+                if (e.target === logDetailElement) {
+                    closeLogDetailModal();
+                }
+            });
+        }
 
         // 导出所有API keys
         async function exportAllKeys() {

@@ -31,6 +31,70 @@ const RETRY_DELAY = 30000; // 重试延迟30秒
 const UPSTREAM_TIMEOUT_MS = parseInt(process.env.UPSTREAM_TIMEOUT_MS || '240000'); // 上游请求超时（默认240秒）
 const CLIENT_SOCKET_TIMEOUT_MS = parseInt(process.env.CLIENT_SOCKET_TIMEOUT_MS || '480000'); // 客户端连接/响应最大保持时间（默认480秒）
 
+const RESPONSE_TYPE_LABEL = {
+  stream: '流式',
+  json: 'JSON'
+};
+
+function getClientIp(req) {
+  const forwarded = req.headers['x-forwarded-for'];
+  if (forwarded && typeof forwarded === 'string') {
+    return forwarded.split(',')[0].trim();
+  }
+  if (req.ip) {
+    return req.ip.replace('::ffff:', '');
+  }
+  return req.socket?.remoteAddress?.replace('::ffff:', '') || '未知';
+}
+
+function buildProxyDescriptor(proxy) {
+  if (!proxy) return null;
+  return {
+    id: proxy.id,
+    type: proxy.type,
+    host: proxy.host,
+    port: proxy.port
+  };
+}
+
+function buildRequestSummary(payload) {
+  if (!payload || typeof payload !== 'object') return null;
+  return {
+    model: payload.model || null,
+    stream: payload.stream === true,
+    max_tokens: payload.max_tokens,
+    temperature: payload.temperature,
+    top_p: payload.top_p,
+    messages_count: Array.isArray(payload.messages) ? payload.messages.length : undefined,
+    tools_count: Array.isArray(payload.tools) ? payload.tools.length : undefined,
+    extra_keys: Object.keys(payload).filter((key) => !['model', 'messages', 'stream', 'max_tokens', 'temperature', 'top_p', 'tools'].includes(key))
+  };
+}
+
+function buildResponseSummary(data) {
+  if (!data || typeof data !== 'object') return null;
+  const summary = {};
+  if (data.id) summary.id = data.id;
+  if (data.created) summary.created = data.created;
+  if (data.usage) summary.usage = data.usage;
+  if (Array.isArray(data.choices)) {
+    summary.choices = data.choices.map(choice => ({
+      finish_reason: choice.finish_reason,
+      role: choice.message?.role,
+      has_content: !!(choice.message && choice.message.content),
+      delta: choice.delta ? Object.keys(choice.delta) : undefined
+    }));
+  }
+  if (data.error && typeof data.error === 'object') {
+    summary.error = {
+      code: data.error.code,
+      message: data.error.message,
+      type: data.error.type
+    };
+  }
+  return summary;
+}
+
 // 定期清理过期的IP拉黑记录
 setInterval(async () => {
   try {
@@ -129,6 +193,12 @@ router.post('/chat/completions', apiAuth, async (req, res) => {
     let clientDisconnected = false; // 标记客户端是否断开连接
     let requestCompleted = false; // 标记请求是否正常完成（成功或失败但已处理）
     const isStreamingRequest = req.body && req.body.stream === true;
+    const clientIp = getClientIp(req);
+    const requestPath = req.originalUrl || req.path || '/proxy/chat/completions';
+    const upstreamUrl = `${SILICONFLOW_BASE_URL}/chat/completions`;
+    const baseRequestSummary = buildRequestSummary(req.body);
+    const responseTypeLabel = isStreamingRequest ? RESPONSE_TYPE_LABEL.stream : RESPONSE_TYPE_LABEL.json;
+    const clientRequestId = req.headers['x-request-id'] || `req_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 
     // 调整客户端与服务器之间的超时时间，避免长文本响应被提前断开
     const clientTimeoutLogger = (phase = '未知阶段') => {
@@ -221,6 +291,8 @@ router.post('/chat/completions', apiAuth, async (req, res) => {
       let keySuccess = false; // 当前key是否成功
 
       while (retryCount <= MAX_RETRIES && !keySuccess && !checkClientDisconnected()) {
+        const attemptStart = Date.now();
+        let activeProxyForAttempt = null;
         try {
           // 在发送请求前检查客户端是否断开
           if (checkClientDisconnected()) {
@@ -232,7 +304,7 @@ router.post('/chat/completions', apiAuth, async (req, res) => {
           const isStreaming = isStreamingRequest;
 
           // 检查是否有激活的代理
-          const activeProxy = await getActiveProxy();
+          activeProxyForAttempt = await getActiveProxy();
           let axiosConfig = {
             headers: {
               'Authorization': `Bearer ${apiKey}`,
@@ -243,8 +315,8 @@ router.post('/chat/completions', apiAuth, async (req, res) => {
           };
 
           // 如果有激活的代理，使用代理
-          if (activeProxy) {
-            const agent = createProxyAgent(activeProxy);
+          if (activeProxyForAttempt) {
+            const agent = createProxyAgent(activeProxyForAttempt);
             if (agent) {
               axiosConfig.httpsAgent = agent;
               axiosConfig.httpAgent = agent;
@@ -268,7 +340,25 @@ router.post('/chat/completions', apiAuth, async (req, res) => {
           requestSuccess = true;
           await markApiKeyStatus(apiKeyId, 'active');
           await db.incrementCallCount(apiKeyId);
-          await db.recordUsage(apiKeyId, true);
+          const durationMs = Date.now() - attemptStart;
+          const proxyDescriptor = buildProxyDescriptor(activeProxyForAttempt);
+          const successDetail = {
+            request: baseRequestSummary,
+            response: buildResponseSummary(response.data),
+            proxy: proxyDescriptor
+          };
+          await db.recordUsage(apiKeyId, true, successDetail, {
+            statusCode: response.status,
+            durationMs,
+            requestType: proxyDescriptor ? '代理请求' : '最终请求',
+            responseType: responseTypeLabel,
+            model: req.body?.model || null,
+            clientIp,
+            requestPath,
+            upstreamUrl,
+            proxyInfo: proxyDescriptor,
+            requestId: clientRequestId
+          });
 
           // 如果之前这个key被标记为错误，现在成功了，恢复为正常
           const currentKeyInfo = await db.getApiKeyById(apiKeyId);
@@ -373,6 +463,8 @@ router.post('/chat/completions', apiAuth, async (req, res) => {
           return res.json(response.data);
 
         } catch (error) {
+          const durationMs = Date.now() - attemptStart;
+          const proxyDescriptor = buildProxyDescriptor(activeProxyForAttempt);
           // 如果客户端已断开，停止处理
           if (checkClientDisconnected()) {
             console.log(`客户端已断开，停止重试 (API Key ${apiKeyId} ${apiKeyName})`);
@@ -387,6 +479,7 @@ router.post('/chat/completions', apiAuth, async (req, res) => {
           if (proxyEnabled && shouldUseProxy(error) && retryCount === 0) {
             // 第一次失败，尝试使用代理
             console.log(`尝试使用代理进行请求 (API Key ${apiKeyId} ${apiKeyName})`);
+            const proxyCallStart = Date.now();
             const proxyResult = await tryProxyRequest(
               {
                 headers: {
@@ -399,6 +492,7 @@ router.post('/chat/completions', apiAuth, async (req, res) => {
               `${SILICONFLOW_BASE_URL}/chat/completions`,
               req.body
             );
+            const proxyDurationTotal = Date.now() - proxyCallStart;
 
             if (proxyResult && proxyResult.success) {
               // 代理成功，使用代理的响应
@@ -407,7 +501,24 @@ router.post('/chat/completions', apiAuth, async (req, res) => {
               requestSuccess = true;
               await markApiKeyStatus(apiKeyId, 'active');
               await db.incrementCallCount(apiKeyId);
-              await db.recordUsage(apiKeyId, true);
+              const proxyDescriptorForLog = buildProxyDescriptor(proxyResult.proxy);
+              const proxySuccessDetail = {
+                request: baseRequestSummary,
+                response: buildResponseSummary(proxyResponse.data),
+                proxy: proxyDescriptorForLog
+              };
+              await db.recordUsage(apiKeyId, true, proxySuccessDetail, {
+                statusCode: proxyResponse.status,
+                durationMs: proxyResult.durationMs || proxyDurationTotal,
+                requestType: '代理请求',
+                responseType: responseTypeLabel,
+                model: req.body?.model || null,
+                clientIp,
+                requestPath,
+                upstreamUrl,
+                proxyInfo: proxyDescriptorForLog,
+                requestId: clientRequestId
+              });
 
               // 如果之前这个key被标记为错误，现在成功了，恢复为正常
               const currentKeyInfo = await db.getApiKeyById(apiKeyId);
@@ -533,6 +644,10 @@ router.post('/chat/completions', apiAuth, async (req, res) => {
           // 记录错误（只保存关键错误信息，过滤对话内容）
           const errorMessage = getErrorMessage(error);
           let detailedError = errorMessage;
+          let errorDetailObject = {
+            message: errorMessage,
+            code: error.code || null
+          };
           if (error.response) {
             try {
               // 只提取关键错误信息，不保存对话内容
@@ -547,20 +662,15 @@ router.post('/chat/completions', apiAuth, async (req, res) => {
               
               if (responseData !== undefined && responseData !== null) {
                 if (typeof responseData === 'string') {
-                  // 如果是字符串，检查是否包含对话内容
-                  // 如果字符串太长（可能是对话内容），只保存前200个字符
                   if (responseData.length > 200) {
                     errorInfo.upstream_error = responseData.substring(0, 200) + '... (已截断)';
                   } else {
                     errorInfo.upstream_error = responseData;
                   }
                 } else if (typeof responseData === 'object') {
-                  // 只提取关键错误字段
                   const extracted = {};
                   
-                  // 优先提取标准错误字段
                   if (responseData.error) {
-                    // 如果 error 是对象，提取其关键字段
                     if (typeof responseData.error === 'object') {
                       if (responseData.error.code) extracted.code = responseData.error.code;
                       if (responseData.error.message) extracted.message = responseData.error.message;
@@ -571,7 +681,6 @@ router.post('/chat/completions', apiAuth, async (req, res) => {
                     }
                   }
                   
-                  // 直接提取顶层的关键字段
                   if (responseData.code !== undefined) extracted.code = responseData.code;
                   if (responseData.message !== undefined) extracted.message = responseData.message;
                   if (responseData.type !== undefined) extracted.type = responseData.type;
@@ -579,18 +688,15 @@ router.post('/chat/completions', apiAuth, async (req, res) => {
                   if (responseData.status !== undefined) extracted.status = responseData.status;
                   if (responseData.reason !== undefined) extracted.reason = responseData.reason;
                   
-                  // 提取其他非对话相关的字段（但排除已知的对话字段）
                   for (const key in responseData) {
                     if (responseData.hasOwnProperty(key) && 
                         !filteredFields.includes(key.toLowerCase()) &&
                         !extracted.hasOwnProperty(key)) {
                       const value = responseData[key];
-                      // 只提取基本类型，不提取复杂对象和数组（可能包含对话）
                       if (value !== null && 
                           (typeof value === 'string' || 
                            typeof value === 'number' || 
                            typeof value === 'boolean')) {
-                        // 如果是字符串且太长，截断
                         if (typeof value === 'string' && value.length > 200) {
                           extracted[key] = value.substring(0, 200) + '... (已截断)';
                         } else {
@@ -612,21 +718,37 @@ router.post('/chat/completions', apiAuth, async (req, res) => {
                 errorInfo.upstream_error = null;
               }
               
+              errorDetailObject = errorInfo;
               detailedError = JSON.stringify(errorInfo);
             } catch (e) {
-              // 如果序列化失败，只保存基本信息
-              detailedError = JSON.stringify({
-            status: error.response.status,
-            statusText: error.response.statusText,
+              errorDetailObject = {
+                status: error.response.status,
+                statusText: error.response.statusText,
                 upstream_error: '[无法解析上游错误]'
-              });
+              };
+              detailedError = JSON.stringify(errorDetailObject);
             }
           }
           
           // 只有在客户端未断开时才记录错误
           if (!checkClientDisconnected()) {
-          await db.recordUsage(apiKeyId, false, detailedError);
-          await markApiKeyStatus(apiKeyId, 'error', errorMessage);
+            await db.recordUsage(apiKeyId, false, {
+              request: baseRequestSummary,
+              error: errorDetailObject,
+              proxy: proxyDescriptor
+            }, {
+              statusCode: error.response?.status || null,
+              durationMs,
+              requestType: proxyDescriptor ? '代理请求' : '最终请求',
+              responseType: responseTypeLabel,
+              model: req.body?.model || null,
+              clientIp,
+              requestPath,
+              upstreamUrl,
+              proxyInfo: proxyDescriptor,
+              requestId: clientRequestId
+            });
+            await markApiKeyStatus(apiKeyId, 'error', errorMessage);
           }
 
           // 如果不是最后一次重试，等待后继续

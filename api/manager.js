@@ -6,6 +6,30 @@ const { createProxyAgent } = require('../utils/proxyManager');
 
 const router = express.Router();
 
+function summarizeResponsePayload(data) {
+  if (!data || typeof data !== 'object') return null;
+  const summary = {};
+  if (data.id) summary.id = data.id;
+  if (data.usage) summary.usage = data.usage;
+  if (Array.isArray(data.choices)) {
+    summary.choices = data.choices.map(choice => ({
+      finish_reason: choice.finish_reason,
+      role: choice.message?.role,
+      has_content: !!(choice.message && choice.message.content)
+    }));
+  }
+  return summary;
+}
+
+function safeParseJson(value) {
+  if (!value || typeof value !== 'string') return null;
+  try {
+    return JSON.parse(value);
+  } catch (error) {
+    return null;
+  }
+}
+
 // 管理员密码验证中间件
 const adminAuth = (req, res, next) => {
   const adminPassword = process.env.ADMIN_PASSWORD;
@@ -355,12 +379,40 @@ router.get('/api-keys/:id/logs', adminAuth, async (req, res) => {
       return res.status(404).json({ success: false, message: 'API key不存在' });
     }
 
-    const limit = parseInt(req.query.limit) || 50;
-    const logs = await db.getApiKeyErrorLogs(id, limit);
+    const page = parseInt(req.query.page, 10) || 1;
+    const pageSize = parseInt(req.query.pageSize || req.query.limit, 10) || 15;
+    const logResult = await db.getApiKeyUsageLogs(id, page, pageSize);
+    const formatted = logResult.rows.map((log) => {
+      const proxyInfo = safeParseJson(log.proxy_info);
+      const detail = safeParseJson(log.error);
+      return {
+        id: log.id,
+        timestamp: log.timestamp,
+        success: log.success === 1,
+        status_code: log.status_code,
+        duration_ms: log.duration_ms,
+        request_type: log.request_type || (proxyInfo ? '代理请求' : '最终请求'),
+        response_type: log.response_type || 'JSON',
+        model: log.model || '未知',
+        client_ip: log.client_ip || null,
+        request_path: log.request_path || null,
+        upstream_url: log.upstream_url || null,
+        proxy_info: proxyInfo,
+        request_id: log.request_id || null,
+        detail,
+        detail_raw: log.error
+      };
+    });
     
     res.json({ 
       success: true, 
-      data: logs 
+      data: formatted,
+      pagination: {
+        page: logResult.page,
+        pageSize: logResult.pageSize,
+        total: logResult.total,
+        totalPages: Math.max(1, Math.ceil((logResult.total || 0) / (logResult.pageSize || 1)))
+      }
     });
   } catch (error) {
     console.error('获取错误日志失败:', error);
@@ -450,6 +502,9 @@ router.post('/api-keys/:id/verify', adminAuth, async (req, res) => {
       }
     }
 
+    const verifyStartAt = Date.now();
+    const verifyRequestId = `verify_${id}_${verifyStartAt}`;
+
     try {
       const response = await axios.post(
         `${SILICONFLOW_BASE_URL}/chat/completions`,
@@ -470,6 +525,7 @@ router.post('/api-keys/:id/verify', adminAuth, async (req, res) => {
       await db.updateApiKeyStatus(id, 'active', null);
       
       // 记录成功日志（标注是否使用代理）
+      const verifyDuration = Date.now() - verifyStartAt;
       const logData = {
         type: 'verify_test',
         success: true,
@@ -484,11 +540,21 @@ router.post('/api-keys/:id/verify', adminAuth, async (req, res) => {
         response: {
           status: response.status,
           statusText: response.statusText,
-          data: response.data
+          summary: summarizeResponsePayload(response.data)
         }
       };
-      const logMessage = JSON.stringify(logData, null, 2);
-      await db.recordUsage(id, true, logMessage);
+      await db.recordUsage(id, true, logData, {
+        statusCode: response.status,
+        durationMs: verifyDuration,
+        requestType: proxyInfo ? '代理验证' : '手动验证',
+        responseType: 'JSON',
+        model: testRequest.model,
+        clientIp: '管理端',
+        requestPath: `/api/manage/api-keys/${id}/verify`,
+        upstreamUrl: `${SILICONFLOW_BASE_URL}/chat/completions`,
+        proxyInfo,
+        requestId: verifyRequestId
+      });
 
       await refreshApiKeys();
       
@@ -505,6 +571,8 @@ router.post('/api-keys/:id/verify', adminAuth, async (req, res) => {
       // 测试失败
       success = false;
       
+      const verifyDuration = Date.now() - verifyStartAt;
+
       if (error.response) {
         // 上游返回了错误响应
         errorMessage = {
@@ -557,8 +625,18 @@ router.post('/api-keys/:id/verify', adminAuth, async (req, res) => {
       }
 
       // 记录失败日志（标注是否使用代理）
-      const logMessage = JSON.stringify(errorMessage, null, 2);
-      await db.recordUsage(id, false, logMessage);
+      await db.recordUsage(id, false, errorMessage, {
+        statusCode: error.response?.status || null,
+        durationMs: verifyDuration,
+        requestType: proxyInfo ? '代理验证' : '手动验证',
+        responseType: 'JSON',
+        model: testRequest.model,
+        clientIp: '管理端',
+        requestPath: `/api/manage/api-keys/${id}/verify`,
+        upstreamUrl: `${SILICONFLOW_BASE_URL}/chat/completions`,
+        proxyInfo,
+        requestId: verifyRequestId
+      });
 
       return res.json({ 
         success: false, 

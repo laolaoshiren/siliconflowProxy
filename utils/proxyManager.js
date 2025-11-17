@@ -122,8 +122,10 @@ async function tryProxyRequest(axiosConfig, url, data) {
         httpAgent: agent
       };
       try {
+        const attemptStart = Date.now();
         const response = await axios.post(url, data, testConfig);
-        return { success: true, response, proxy: activeProxy };
+        const durationMs = Date.now() - attemptStart;
+        return { success: true, response, proxy: activeProxy, durationMs };
       } catch (error) {
         console.error(`使用激活代理失败 (${activeProxy.type}://${activeProxy.host}:${activeProxy.port}):`, error.message);
         // 激活的代理失败，清除状态，尝试其他代理
@@ -145,11 +147,13 @@ async function tryProxyRequest(axiosConfig, url, data) {
     };
 
     try {
+      const attemptStart = Date.now();
       const response = await axios.post(url, data, testConfig);
+      const durationMs = Date.now() - attemptStart;
       // 成功，设置这个代理为激活状态
       await setActiveProxy(proxy.id);
       console.log(`代理连接成功: ${proxy.type}://${proxy.host}:${proxy.port}，已激活（1小时后自动恢复本地IP）`);
-      return { success: true, response, proxy };
+      return { success: true, response, proxy, durationMs };
     } catch (error) {
       console.error(`代理测试失败 (${proxy.type}://${proxy.host}:${proxy.port}):`, error.message);
       // 继续尝试下一个代理

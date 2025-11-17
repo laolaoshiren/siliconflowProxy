@@ -54,6 +54,16 @@ class Database {
           api_key_id INTEGER,
           timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
           success INTEGER DEFAULT 0,
+          status_code INTEGER,
+          duration_ms INTEGER,
+          request_type TEXT,
+          response_type TEXT,
+          model TEXT,
+          client_ip TEXT,
+          request_path TEXT,
+          upstream_url TEXT,
+          proxy_info TEXT,
+          request_id TEXT,
           error TEXT,
           FOREIGN KEY (api_key_id) REFERENCES api_keys(id)
         )`,
@@ -111,7 +121,17 @@ class Database {
         { sql: `ALTER TABLE proxy_config ADD COLUMN verify_ip TEXT`, field: 'proxy_verify_ip' },
         { sql: `ALTER TABLE proxy_config ADD COLUMN verify_address TEXT`, field: 'proxy_verify_address' },
         { sql: `ALTER TABLE proxy_config ADD COLUMN verify_latency INTEGER`, field: 'proxy_verify_latency' },
-        { sql: `ALTER TABLE proxy_config ADD COLUMN verified_at DATETIME`, field: 'proxy_verified_at' }
+        { sql: `ALTER TABLE proxy_config ADD COLUMN verified_at DATETIME`, field: 'proxy_verified_at' },
+        { sql: `ALTER TABLE api_usage ADD COLUMN status_code INTEGER`, field: 'usage_status_code' },
+        { sql: `ALTER TABLE api_usage ADD COLUMN duration_ms INTEGER`, field: 'usage_duration_ms' },
+        { sql: `ALTER TABLE api_usage ADD COLUMN request_type TEXT`, field: 'usage_request_type' },
+        { sql: `ALTER TABLE api_usage ADD COLUMN response_type TEXT`, field: 'usage_response_type' },
+        { sql: `ALTER TABLE api_usage ADD COLUMN model TEXT`, field: 'usage_model' },
+        { sql: `ALTER TABLE api_usage ADD COLUMN client_ip TEXT`, field: 'usage_client_ip' },
+        { sql: `ALTER TABLE api_usage ADD COLUMN request_path TEXT`, field: 'usage_request_path' },
+        { sql: `ALTER TABLE api_usage ADD COLUMN upstream_url TEXT`, field: 'usage_upstream_url' },
+        { sql: `ALTER TABLE api_usage ADD COLUMN proxy_info TEXT`, field: 'usage_proxy_info' },
+        { sql: `ALTER TABLE api_usage ADD COLUMN request_id TEXT`, field: 'usage_request_id' }
       ];
       
       let completed = 0;
@@ -285,11 +305,46 @@ class Database {
     });
   }
 
-  async recordUsage(apiKeyId, success, error = null) {
+  async recordUsage(apiKeyId, success, detail = null, metadata = {}) {
+    const {
+      statusCode = null,
+      durationMs = null,
+      requestType = null,
+      responseType = null,
+      model = null,
+      clientIp = null,
+      requestPath = null,
+      upstreamUrl = null,
+      proxyInfo = null,
+      requestId = null
+    } = metadata || {};
+
+    const proxyInfoString = proxyInfo ? JSON.stringify(proxyInfo) : null;
+    let detailString = null;
+    if (detail !== null && detail !== undefined) {
+      detailString = typeof detail === 'string' ? detail : JSON.stringify(detail);
+    }
+
     return new Promise((resolve, reject) => {
       this.db.run(
-        'INSERT INTO api_usage (api_key_id, success, error) VALUES (?, ?, ?)',
-        [apiKeyId, success ? 1 : 0, error],
+        `INSERT INTO api_usage 
+          (api_key_id, success, error, status_code, duration_ms, request_type, response_type, model, client_ip, request_path, upstream_url, proxy_info, request_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          apiKeyId,
+          success ? 1 : 0,
+          detailString,
+          statusCode,
+          durationMs,
+          requestType,
+          responseType,
+          model,
+          clientIp,
+          requestPath,
+          upstreamUrl,
+          proxyInfoString,
+          requestId
+        ],
         (err) => {
           if (err) {
             reject(err);
@@ -353,17 +408,41 @@ class Database {
     });
   }
 
-  // 获取API key的错误日志
-  async getApiKeyErrorLogs(apiKeyId, limit = 50) {
+  // 获取API key的请求日志（分页）
+  async getApiKeyUsageLogs(apiKeyId, page = 1, pageSize = 15) {
+    const safePage = Math.max(1, parseInt(page, 10) || 1);
+    const safePageSize = Math.max(1, Math.min(100, parseInt(pageSize, 10) || 15));
+    const offset = (safePage - 1) * safePageSize;
+
     return new Promise((resolve, reject) => {
       this.db.all(
-        'SELECT id, timestamp, success, error FROM api_usage WHERE api_key_id = ? ORDER BY timestamp DESC LIMIT ?',
-        [apiKeyId, limit],
+        `SELECT id, timestamp, success, error, status_code, duration_ms, request_type, response_type,
+                model, client_ip, request_path, upstream_url, proxy_info, request_id
+         FROM api_usage
+         WHERE api_key_id = ?
+         ORDER BY timestamp DESC
+         LIMIT ? OFFSET ?`,
+        [apiKeyId, safePageSize, offset],
         (err, rows) => {
           if (err) {
             reject(err);
           } else {
-            resolve(rows);
+            this.db.get(
+              'SELECT COUNT(*) as total FROM api_usage WHERE api_key_id = ?',
+              [apiKeyId],
+              (countErr, countRow) => {
+                if (countErr) {
+                  reject(countErr);
+                } else {
+                  resolve({
+                    rows,
+                    total: countRow ? countRow.total : 0,
+                    page: safePage,
+                    pageSize: safePageSize
+                  });
+                }
+              }
+            );
           }
         }
       );
