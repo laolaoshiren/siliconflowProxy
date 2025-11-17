@@ -366,6 +366,138 @@ router.get('/api-keys/:id/logs', adminAuth, async (req, res) => {
   }
 });
 
+// 验证API密钥
+router.post('/api-keys/:id/verify', adminAuth, async (req, res) => {
+  try {
+    const id = parseInt(req.params.id);
+    if (isNaN(id)) {
+      return res.status(400).json({ success: false, message: '无效的ID' });
+    }
+
+    const keyInfo = await db.getApiKeyById(id);
+    if (!keyInfo) {
+      return res.status(404).json({ success: false, message: 'API key不存在' });
+    }
+
+    const axios = require('axios');
+    const SILICONFLOW_BASE_URL = 'https://api.siliconflow.cn/v1';
+    
+    // 测试请求体
+    const testRequest = {
+      model: 'deepseek-ai/DeepSeek-V3.2-Exp',
+      messages: [
+        {
+          role: 'user',
+          content: '你好'
+        }
+      ],
+      max_tokens: 10,
+      stream: false
+    };
+
+    let testResult = null;
+    let errorMessage = null;
+    let success = false;
+
+    try {
+      const response = await axios.post(
+        `${SILICONFLOW_BASE_URL}/chat/completions`,
+        testRequest,
+        {
+          headers: {
+            'Authorization': `Bearer ${keyInfo.api_key}`,
+            'Content-Type': 'application/json'
+          },
+          timeout: 30000 // 30秒超时
+        }
+      );
+
+      // 测试成功
+      success = true;
+      testResult = {
+        status: response.status,
+        statusText: response.statusText,
+        data: response.data
+      };
+
+      // 更新密钥状态为可用
+      await db.updateApiKeyAvailability(id, true);
+      await db.updateApiKeyStatus(id, 'active', null);
+      
+      // 记录成功日志
+      const logMessage = JSON.stringify({
+        type: 'verify_test',
+        success: true,
+        model: 'deepseek-ai/DeepSeek-V3.2-Exp',
+        response: {
+          status: response.status,
+          statusText: response.statusText,
+          data: response.data
+        }
+      }, null, 2);
+      await db.recordUsage(id, true, logMessage);
+
+      await refreshApiKeys();
+      
+      return res.json({ 
+        success: true, 
+        message: '验证成功：API密钥可以正常使用',
+        data: {
+          response: testResult
+        }
+      });
+    } catch (error) {
+      // 测试失败
+      success = false;
+      
+      if (error.response) {
+        // 上游返回了错误响应
+        errorMessage = {
+          type: 'verify_test',
+          success: false,
+          model: 'deepseek-ai/DeepSeek-V3.2-Exp',
+          status: error.response.status,
+          statusText: error.response.statusText,
+          upstream_error: error.response.data || error.response.statusText,
+          error_message: error.message
+        };
+      } else if (error.request) {
+        // 请求发送了但没有收到响应
+        errorMessage = {
+          type: 'verify_test',
+          success: false,
+          model: 'deepseek-ai/DeepSeek-V3.2-Exp',
+          error_message: '请求超时或网络错误',
+          details: error.message
+        };
+      } else {
+        // 其他错误
+        errorMessage = {
+          type: 'verify_test',
+          success: false,
+          model: 'deepseek-ai/DeepSeek-V3.2-Exp',
+          error_message: error.message
+        };
+      }
+
+      // 记录失败日志
+      const logMessage = JSON.stringify(errorMessage, null, 2);
+      await db.recordUsage(id, false, logMessage);
+
+      return res.json({ 
+        success: false, 
+        message: '验证失败：API密钥无法正常使用',
+        data: {
+          error: errorMessage
+        }
+      });
+    }
+  } catch (error) {
+    console.error('验证API key失败:', error);
+    res.status(500).json({ success: false, message: '验证API key失败: ' + error.message });
+  }
+});
+
 // 获取当前正在使用的API key ID
 router.get('/current-api-key', adminAuth, async (req, res) => {
   try {

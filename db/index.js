@@ -334,7 +334,7 @@ class Database {
   async getApiKeyErrorLogs(apiKeyId, limit = 50) {
     return new Promise((resolve, reject) => {
       this.db.all(
-        'SELECT id, timestamp, success, error FROM api_usage WHERE api_key_id = ? AND success = 0 ORDER BY timestamp DESC LIMIT ?',
+        'SELECT id, timestamp, success, error FROM api_usage WHERE api_key_id = ? ORDER BY timestamp DESC LIMIT ?',
         [apiKeyId, limit],
         (err, rows) => {
           if (err) {

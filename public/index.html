@@ -423,13 +423,23 @@
         }
 
         .actions {
+            white-space: nowrap;
             display: flex;
-            gap: 8px;
+            gap: 6px;
+            flex-wrap: nowrap;
+            align-items: center;
+        }
+
+        .actions .btn {
+            flex-shrink: 0;
+            white-space: nowrap;
         }
 
         .btn-small {
-            padding: 6px 12px;
+            padding: 6px 10px;
             font-size: 12px;
+            white-space: nowrap;
+            flex-shrink: 0;
         }
 
         .loading {
@@ -546,12 +556,30 @@
         }
 
         .log-item {
-            margin-bottom: 15px;
-            padding: 10px;
-            background: var(--container-bg);
-            border-radius: 4px;
-            border-left: 3px solid #e74c3c;
-            transition: background 0.3s ease;
+            margin-bottom: 12px;
+            padding: 12px;
+            border-radius: 6px;
+            background: var(--table-header-bg);
+            border-left: 3px solid var(--border-color);
+            transition: background 0.3s ease, border-color 0.3s ease;
+        }
+
+        .log-item-success {
+            border-left-color: #27ae60;
+            background: rgba(39, 174, 96, 0.1);
+        }
+
+        [data-theme="dark"] .log-item-success {
+            background: rgba(39, 174, 96, 0.15);
+        }
+
+        .log-item-error {
+            border-left-color: #e74c3c;
+            background: rgba(231, 76, 60, 0.1);
+        }
+
+        [data-theme="dark"] .log-item-error {
+            background: rgba(231, 76, 60, 0.15);
         }
 
         .log-time {
@@ -561,10 +589,14 @@
             transition: color 0.3s ease;
         }
 
-        .log-error {
-            color: #e74c3c;
+        .log-content-text {
+            color: var(--text-primary);
             word-break: break-all;
             white-space: pre-wrap;
+            font-family: 'Courier New', monospace;
+            font-size: 13px;
+            line-height: 1.6;
+            transition: color 0.3s ease;
         }
 
         .password-box h2 {
@@ -1340,6 +1372,7 @@
                         <td>${lastUsed}</td>
                         <td>${key.error_count || 0}</td>
                         <td class="actions">
+                            <button class="btn btn-success btn-small" onclick="verifyApiKey(${key.id})" id="verify-btn-${key.id}">验证</button>
                             <button class="btn btn-info btn-small" onclick="queryBalance(${key.id})" id="query-btn-${key.id}">查询余额</button>
                             <button class="btn btn-warning btn-small" onclick="viewErrorLogs(${key.id})" title="查看错误日志">日志</button>
                             <button class="btn btn-danger btn-small" onclick="deleteKey(${key.id})">删除</button>
@@ -1684,6 +1717,42 @@
             }
         }
 
+        // 验证API密钥
+        async function verifyApiKey(id) {
+            const btn = document.getElementById(`verify-btn-${id}`);
+            if (!btn) return;
+            
+            const originalText = btn.textContent;
+            btn.disabled = true;
+            btn.textContent = '验证中...';
+            
+            try {
+                const response = await fetch(`/api/manage/api-keys/${id}/verify`, {
+                    method: 'POST',
+                    headers: getAuthHeaders()
+                });
+                
+                if (response.status === 401) {
+                    handleAuthError();
+                    return;
+                }
+                
+                const result = await response.json();
+                
+                if (result.success) {
+                    showAlert(result.message || '验证成功', 'success');
+                    await loadApiKeys();
+                } else {
+                    showAlert(result.message || '验证失败', 'error');
+                }
+            } catch (error) {
+                showAlert('验证失败: ' + error.message, 'error');
+            } finally {
+                btn.disabled = false;
+                btn.textContent = originalText;
+            }
+        }
+
         // 查询余额
         async function queryBalance(id) {
             const btn = document.getElementById(`query-btn-${id}`);
@@ -1872,36 +1941,56 @@
                     const logs = result.data;
                     
                     if (logs.length === 0) {
-                        document.getElementById('logContent').innerHTML = '<div style="text-align: center; color: var(--text-secondary); padding: 20px;">暂无错误日志</div>';
+                        document.getElementById('logContent').innerHTML = '<div style="text-align: center; color: var(--text-secondary); padding: 20px;">暂无日志</div>';
                     } else {
                         const logsHtml = logs.map(log => {
                             const time = formatChinaTime(log.timestamp);
-                            let errorText = log.error || '未知错误';
+                            let logText = log.error || '未知';
+                            let isSuccess = log.success === 1;
+                            let logClass = isSuccess ? 'log-item-success' : 'log-item-error';
+                            let logIcon = isSuccess ? '✅' : '❌';
                             
-                            // 尝试解析JSON格式的错误信息
+                            // 尝试解析JSON格式的日志信息
                             try {
-                                const errorObj = JSON.parse(errorText);
-                                // 优先显示上游错误信息
-                                if (errorObj.upstream_error) {
-                                    // 如果上游错误是对象，格式化显示
-                                    if (typeof errorObj.upstream_error === 'object') {
-                                        errorText = `上游错误信息:\n${JSON.stringify(errorObj.upstream_error, null, 2)}\n\n状态码: ${errorObj.status || 'N/A'}\n状态文本: ${errorObj.statusText || 'N/A'}`;
-                                    } else {
-                                        errorText = `上游错误信息: ${errorObj.upstream_error}\n\n状态码: ${errorObj.status || 'N/A'}\n状态文本: ${errorObj.statusText || 'N/A'}`;
+                                const logObj = JSON.parse(logText);
+                                
+                                // 检查是否是验证测试日志
+                                if (logObj.type === 'verify_test') {
+                                    if (isSuccess && logObj.response) {
+                                        logText = `验证测试成功\n\n模型: ${logObj.model}\n状态码: ${logObj.response.status}\n状态文本: ${logObj.response.statusText}\n\n响应数据:\n${JSON.stringify(logObj.response.data, null, 2)}`;
+                                    } else if (!isSuccess) {
+                                        if (logObj.upstream_error) {
+                                            if (typeof logObj.upstream_error === 'object') {
+                                                logText = `验证测试失败\n\n模型: ${logObj.model}\n状态码: ${logObj.status || 'N/A'}\n状态文本: ${logObj.statusText || 'N/A'}\n\n上游错误信息:\n${JSON.stringify(logObj.upstream_error, null, 2)}\n\n错误消息: ${logObj.error_message || 'N/A'}`;
+                                            } else {
+                                                logText = `验证测试失败\n\n模型: ${logObj.model}\n状态码: ${logObj.status || 'N/A'}\n状态文本: ${logObj.statusText || 'N/A'}\n\n上游错误信息: ${logObj.upstream_error}\n\n错误消息: ${logObj.error_message || 'N/A'}`;
+                                            }
+                                        } else {
+                                            logText = `验证测试失败\n\n模型: ${logObj.model}\n错误消息: ${logObj.error_message || 'N/A'}\n\n详细信息:\n${JSON.stringify(logObj, null, 2)}`;
+                                        }
                                     }
-                                } else if (errorObj.data) {
-                                    errorText = JSON.stringify(errorObj, null, 2);
                                 } else {
-                                    errorText = JSON.stringify(errorObj, null, 2);
+                                    // 普通错误日志
+                                    if (logObj.upstream_error) {
+                                        if (typeof logObj.upstream_error === 'object') {
+                                            logText = `上游错误信息:\n${JSON.stringify(logObj.upstream_error, null, 2)}\n\n状态码: ${logObj.status || 'N/A'}\n状态文本: ${logObj.statusText || 'N/A'}`;
+                                        } else {
+                                            logText = `上游错误信息: ${logObj.upstream_error}\n\n状态码: ${logObj.status || 'N/A'}\n状态文本: ${logObj.statusText || 'N/A'}`;
+                                        }
+                                    } else if (logObj.data) {
+                                        logText = JSON.stringify(logObj, null, 2);
+                                    } else {
+                                        logText = JSON.stringify(logObj, null, 2);
+                                    }
                                 }
                             } catch (e) {
                                 // 不是JSON，直接使用
                             }
                             
                             return `
-                                <div class="log-item">
-                                    <div class="log-time">${time}</div>
-                                    <div class="log-error">${escapeHtml(errorText)}</div>
+                                <div class="log-item ${logClass}">
+                                    <div class="log-time">${time} ${logIcon}</div>
+                                    <div class="log-content-text">${escapeHtml(logText)}</div>
                                 </div>
                             `;
                         }).join('');
