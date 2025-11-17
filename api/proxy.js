@@ -12,6 +12,13 @@ const {
   getCurrentApiKeyId,
   setCurrentApiKeyId
 } = require('../utils/apiManager');
+const {
+  isProxyEnabled,
+  getActiveProxy,
+  tryProxyRequest,
+  shouldUseProxy,
+  createProxyAgent
+} = require('../utils/proxyManager');
 
 const router = express.Router();
 
@@ -194,8 +201,9 @@ router.post('/chat/completions', apiAuth, async (req, res) => {
           // 检查是否是流式请求
           const isStreaming = req.body && req.body.stream === true;
 
-          // 转发请求到硅基流动API
-          const axiosConfig = {
+          // 检查是否有激活的代理
+          const activeProxy = await getActiveProxy();
+          let axiosConfig = {
             headers: {
               'Authorization': `Bearer ${apiKey}`,
               'Content-Type': 'application/json'
@@ -203,6 +211,15 @@ router.post('/chat/completions', apiAuth, async (req, res) => {
             timeout: 120000, // 120秒超时
             responseType: isStreaming ? 'stream' : 'json'
           };
+
+          // 如果有激活的代理，使用代理
+          if (activeProxy) {
+            const agent = createProxyAgent(activeProxy);
+            if (agent) {
+              axiosConfig.httpsAgent = agent;
+              axiosConfig.httpAgent = agent;
+            }
+          }
 
           const response = await axios.post(
             `${SILICONFLOW_BASE_URL}/chat/completions`,
@@ -334,6 +351,121 @@ router.post('/chat/completions', apiAuth, async (req, res) => {
 
           lastError = error;
           console.error(`API Key ${apiKeyId} (${apiKeyName}) 请求失败 (重试 ${retryCount}/${MAX_RETRIES}):`, error.message);
+
+          // 检查是否应该使用代理（在检测50603错误之前）
+          const proxyEnabled = await isProxyEnabled();
+          if (proxyEnabled && shouldUseProxy(error) && retryCount === 0) {
+            // 第一次失败，尝试使用代理
+            console.log(`尝试使用代理进行请求 (API Key ${apiKeyId} ${apiKeyName})`);
+            const proxyResult = await tryProxyRequest(
+              {
+                headers: {
+                  'Authorization': `Bearer ${apiKey}`,
+                  'Content-Type': 'application/json'
+                },
+                timeout: 120000,
+                responseType: isStreaming ? 'stream' : 'json'
+              },
+              `${SILICONFLOW_BASE_URL}/chat/completions`,
+              req.body
+            );
+
+            if (proxyResult && proxyResult.success) {
+              // 代理成功，使用代理的响应
+              const proxyResponse = proxyResult.response;
+              keySuccess = true;
+              requestSuccess = true;
+              await markApiKeyStatus(apiKeyId, 'active');
+              await db.incrementCallCount(apiKeyId);
+              await db.recordUsage(apiKeyId, true);
+
+              // 如果之前这个key被标记为错误，现在成功了，恢复为正常
+              const currentKeyInfo = await db.getApiKeyById(apiKeyId);
+              if (currentKeyInfo && currentKeyInfo.status === 'error') {
+                await db.updateApiKeyAvailability(apiKeyId, true);
+                await require('../utils/apiManager').refreshApiKeys();
+                console.log(`API Key ${apiKeyId} (${apiKeyName}) 通过代理已恢复为正常状态`);
+              }
+
+              // 处理流式响应
+              if (isStreaming && proxyResponse.data) {
+                const streamHeaders = {
+                  'Content-Type': proxyResponse.headers['content-type'] || 'text/event-stream',
+                  'Cache-Control': 'no-cache',
+                  'Connection': 'keep-alive',
+                  'X-Accel-Buffering': 'no'
+                };
+
+                if (proxyResponse.headers['x-request-id']) {
+                  streamHeaders['X-Request-ID'] = proxyResponse.headers['x-request-id'];
+                }
+
+                proxyResponse.data.on('data', (chunk) => {
+                  if (checkClientDisconnected()) {
+                    if (proxyResponse.data && typeof proxyResponse.data.destroy === 'function') {
+                      proxyResponse.data.destroy();
+                    }
+                    return;
+                  }
+                  if (!res.headersSent) {
+                    res.writeHead(200, streamHeaders);
+                  }
+                  try {
+                    res.write(chunk);
+                  } catch (e) {
+                    if (proxyResponse.data && typeof proxyResponse.data.destroy === 'function') {
+                      proxyResponse.data.destroy();
+                    }
+                  }
+                });
+
+                proxyResponse.data.on('end', () => {
+                  if (!checkClientDisconnected()) {
+                    res.end();
+                    removeDisconnectListeners();
+                  }
+                });
+
+                proxyResponse.data.on('error', (err) => {
+                  console.error(`代理流式响应错误 (API Key ${apiKeyId} ${apiKeyName}):`, err.message);
+                  if (!res.headersSent && !checkClientDisconnected()) {
+                    try {
+                      res.status(500).json({
+                        error: {
+                          message: '流式响应错误',
+                          type: 'stream_error',
+                          reason: err.message
+                        }
+                      });
+                    } catch (e) {}
+                  } else {
+                    try {
+                      res.end();
+                    } catch (e) {}
+                  }
+                });
+
+                const stopStreaming = () => {
+                  clientDisconnected = true;
+                  if (proxyResponse.data && typeof proxyResponse.data.destroy === 'function') {
+                    proxyResponse.data.destroy();
+                  }
+                };
+                req.on('close', stopStreaming);
+                req.on('aborted', stopStreaming);
+                req.socket?.on('close', stopStreaming);
+
+                return; // 流式请求直接返回
+              }
+
+              // 非流式请求正常完成
+              removeDisconnectListeners();
+              return res.json(proxyResponse.data);
+            } else {
+              // 代理也失败，继续原有错误处理流程
+              console.error(`所有代理都失败，继续原有错误处理流程 (API Key ${apiKeyId} ${apiKeyName})`);
+            }
+          }
 
           // 检查是否是50603错误（代理服务器IP被上游拉黑）
           // 重要：无论有多少个客户端IP，上游看到的始终是代理服务器本身的IP

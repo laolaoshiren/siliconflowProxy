@@ -379,8 +379,26 @@ router.post('/api-keys/:id/verify', adminAuth, async (req, res) => {
       return res.status(404).json({ success: false, message: 'API key不存在' });
     }
 
+    const { proxyId } = req.body; // 可选的代理ID
+    let proxyInfo = null;
+
     const axios = require('axios');
     const SILICONFLOW_BASE_URL = 'https://api.siliconflow.cn/v1';
+    const { createProxyAgent } = require('../utils/proxyManager');
+    
+    // 如果指定了代理，使用代理
+    if (proxyId) {
+      const configs = await db.getAllProxyConfigs();
+      const proxy = configs.find(p => p.id === parseInt(proxyId));
+      if (proxy) {
+        proxyInfo = {
+          id: proxy.id,
+          type: proxy.type,
+          host: proxy.host,
+          port: proxy.port
+        };
+      }
+    }
     
     // 测试请求体
     // 获取当前时间并格式化
@@ -409,17 +427,32 @@ router.post('/api-keys/:id/verify', adminAuth, async (req, res) => {
     let errorMessage = null;
     let success = false;
 
+    const axiosConfig = {
+      headers: {
+        'Authorization': `Bearer ${keyInfo.api_key}`,
+        'Content-Type': 'application/json'
+      },
+      timeout: 30000 // 30秒超时
+    };
+
+    // 如果使用代理，添加代理agent
+    if (proxyInfo) {
+      const configs = await db.getAllProxyConfigs();
+      const proxy = configs.find(p => p.id === proxyInfo.id);
+      if (proxy) {
+        const agent = createProxyAgent(proxy);
+        if (agent) {
+          axiosConfig.httpsAgent = agent;
+          axiosConfig.httpAgent = agent;
+        }
+      }
+    }
+
     try {
       const response = await axios.post(
         `${SILICONFLOW_BASE_URL}/chat/completions`,
         testRequest,
-        {
-          headers: {
-            'Authorization': `Bearer ${keyInfo.api_key}`,
-            'Content-Type': 'application/json'
-          },
-          timeout: 30000 // 30秒超时
-        }
+        axiosConfig
       );
 
       // 测试成功
@@ -434,26 +467,36 @@ router.post('/api-keys/:id/verify', adminAuth, async (req, res) => {
       await db.updateApiKeyAvailability(id, true);
       await db.updateApiKeyStatus(id, 'active', null);
       
-      // 记录成功日志
-      const logMessage = JSON.stringify({
+      // 记录成功日志（标注是否使用代理）
+      const logData = {
         type: 'verify_test',
         success: true,
         model: 'deepseek-ai/DeepSeek-V3.2-Exp',
+        proxy: proxyInfo ? {
+          id: proxyInfo.id,
+          type: proxyInfo.type,
+          host: proxyInfo.host,
+          port: proxyInfo.port,
+          note: '通过代理验证'
+        } : null,
         response: {
           status: response.status,
           statusText: response.statusText,
           data: response.data
         }
-      }, null, 2);
+      };
+      const logMessage = JSON.stringify(logData, null, 2);
       await db.recordUsage(id, true, logMessage);
 
       await refreshApiKeys();
       
+      const proxyNote = proxyInfo ? ` (通过代理 ${proxyInfo.type}://${proxyInfo.host}:${proxyInfo.port} 验证)` : '';
       return res.json({ 
         success: true, 
-        message: '验证成功：API密钥可以正常使用',
+        message: `验证成功：API密钥可以正常使用${proxyNote}`,
         data: {
-          response: testResult
+          response: testResult,
+          proxy: proxyInfo
         }
       });
     } catch (error) {
@@ -466,6 +509,13 @@ router.post('/api-keys/:id/verify', adminAuth, async (req, res) => {
           type: 'verify_test',
           success: false,
           model: 'deepseek-ai/DeepSeek-V3.2-Exp',
+          proxy: proxyInfo ? {
+            id: proxyInfo.id,
+            type: proxyInfo.type,
+            host: proxyInfo.host,
+            port: proxyInfo.port,
+            note: '通过代理验证（失败）'
+          } : null,
           status: error.response.status,
           statusText: error.response.statusText,
           upstream_error: error.response.data || error.response.statusText,
@@ -477,6 +527,13 @@ router.post('/api-keys/:id/verify', adminAuth, async (req, res) => {
           type: 'verify_test',
           success: false,
           model: 'deepseek-ai/DeepSeek-V3.2-Exp',
+          proxy: proxyInfo ? {
+            id: proxyInfo.id,
+            type: proxyInfo.type,
+            host: proxyInfo.host,
+            port: proxyInfo.port,
+            note: '通过代理验证（失败）'
+          } : null,
           error_message: '请求超时或网络错误',
           details: error.message
         };
@@ -486,11 +543,18 @@ router.post('/api-keys/:id/verify', adminAuth, async (req, res) => {
           type: 'verify_test',
           success: false,
           model: 'deepseek-ai/DeepSeek-V3.2-Exp',
+          proxy: proxyInfo ? {
+            id: proxyInfo.id,
+            type: proxyInfo.type,
+            host: proxyInfo.host,
+            port: proxyInfo.port,
+            note: '通过代理验证（失败）'
+          } : null,
           error_message: error.message
         };
       }
 
-      // 记录失败日志
+      // 记录失败日志（标注是否使用代理）
       const logMessage = JSON.stringify(errorMessage, null, 2);
       await db.recordUsage(id, false, logMessage);
 
@@ -523,6 +587,247 @@ router.get('/current-api-key', adminAuth, async (req, res) => {
   } catch (error) {
     console.error('获取当前API key失败:', error);
     res.status(500).json({ success: false, message: '获取当前API key失败' });
+  }
+});
+
+// 代理配置相关API
+// 获取代理配置状态
+router.get('/proxy/config', adminAuth, async (req, res) => {
+  try {
+    const enabled = await db.getProxyEnabled();
+    const configs = await db.getAllProxyConfigs();
+    const state = await db.getProxyState();
+    
+    res.json({
+      success: true,
+      data: {
+        enabled,
+        configs,
+        activeState: state
+      }
+    });
+  } catch (error) {
+    console.error('获取代理配置失败:', error);
+    res.status(500).json({ success: false, message: '获取代理配置失败' });
+  }
+});
+
+// 设置代理开关
+router.put('/proxy/enabled', adminAuth, async (req, res) => {
+  try {
+    const { enabled } = req.body;
+    await db.setProxyEnabled(enabled === true);
+    res.json({ success: true, message: enabled ? '代理已启用' : '代理已禁用' });
+  } catch (error) {
+    console.error('设置代理开关失败:', error);
+    res.status(500).json({ success: false, message: '设置代理开关失败' });
+  }
+});
+
+// 添加代理配置
+router.post('/proxy/config', adminAuth, async (req, res) => {
+  try {
+    const { type, host, port, username, password } = req.body;
+    
+    if (!type || !host || !port) {
+      return res.status(400).json({ success: false, message: '类型、主机和端口不能为空' });
+    }
+    
+    if (!['socks5', 'http', 'https'].includes(type)) {
+      return res.status(400).json({ success: false, message: '代理类型必须是 socks5、http 或 https' });
+    }
+    
+    const result = await db.addProxyConfig(type, host, parseInt(port), username || null, password || null);
+    
+    // 自动验证新添加的代理
+    try {
+      const axios = require('axios');
+      const { createProxyAgent } = require('../utils/proxyManager');
+      
+      const agent = createProxyAgent(result);
+      if (agent) {
+        const startTime = Date.now();
+        try {
+          const verifyResponse = await axios.get('http://cip.cc', {
+            httpsAgent: agent,
+            httpAgent: agent,
+            timeout: 10000,
+            headers: {
+              'User-Agent': 'curl/7.68.0'
+            }
+          });
+          
+          const endTime = Date.now();
+          const latency = endTime - startTime;
+          
+          // 解析响应内容
+          const responseText = verifyResponse.data;
+          const ipMatch = responseText.match(/IP\s*:\s*([^\n]+)/);
+          const addressMatch = responseText.match(/地址\s*:\s*([^\n]+)/);
+          const data2Match = responseText.match(/数据二\s*:\s*([^\n]+)/);
+          const data3Match = responseText.match(/数据三\s*:\s*([^\n]+)/);
+          
+          const ip = ipMatch ? ipMatch[1].trim() : null;
+          const address = addressMatch ? addressMatch[1].trim() : null;
+          
+          // 更新验证信息
+          await db.updateProxyVerifyInfo(result.id, true, ip, address, latency);
+          result.is_available = 1;
+          result.verify_ip = ip;
+          result.verify_address = address;
+          result.verify_latency = latency;
+        } catch (verifyError) {
+          const endTime = Date.now();
+          const latency = endTime - startTime;
+          await db.updateProxyVerifyInfo(result.id, false, null, null, latency);
+          result.is_available = 0;
+        }
+      }
+    } catch (autoVerifyError) {
+      // 自动验证失败不影响添加操作
+      console.error('自动验证代理失败:', autoVerifyError);
+    }
+    
+    res.json({ success: true, data: result });
+  } catch (error) {
+    console.error('添加代理配置失败:', error);
+    res.status(500).json({ success: false, message: '添加代理配置失败' });
+  }
+});
+
+// 更新代理配置
+router.put('/proxy/config/:id', adminAuth, async (req, res) => {
+  try {
+    const id = parseInt(req.params.id);
+    const { type, host, port, username, password } = req.body;
+    
+    if (isNaN(id)) {
+      return res.status(400).json({ success: false, message: '无效的ID' });
+    }
+    
+    if (!type || !host || !port) {
+      return res.status(400).json({ success: false, message: '类型、主机和端口不能为空' });
+    }
+    
+    if (!['socks5', 'http', 'https'].includes(type)) {
+      return res.status(400).json({ success: false, message: '代理类型必须是 socks5、http 或 https' });
+    }
+    
+    const result = await db.updateProxyConfig(id, type, host, parseInt(port), username || null, password || null);
+    res.json({ success: true, data: result });
+  } catch (error) {
+    console.error('更新代理配置失败:', error);
+    res.status(500).json({ success: false, message: '更新代理配置失败' });
+  }
+});
+
+// 删除代理配置
+router.delete('/proxy/config/:id', adminAuth, async (req, res) => {
+  try {
+    const id = parseInt(req.params.id);
+    if (isNaN(id)) {
+      return res.status(400).json({ success: false, message: '无效的ID' });
+    }
+    
+    const result = await db.deleteProxyConfig(id);
+    if (result.deleted) {
+      res.json({ success: true, message: '删除成功' });
+    } else {
+      res.status(404).json({ success: false, message: '代理配置不存在' });
+    }
+  } catch (error) {
+    console.error('删除代理配置失败:', error);
+    res.status(500).json({ success: false, message: '删除代理配置失败' });
+  }
+});
+
+// 验证代理配置
+router.post('/proxy/config/:id/verify', adminAuth, async (req, res) => {
+  try {
+    const id = parseInt(req.params.id);
+    if (isNaN(id)) {
+      return res.status(400).json({ success: false, message: '无效的ID' });
+    }
+
+    const proxy = await db.getAllProxyConfigs().then(configs => configs.find(c => c.id === id));
+    if (!proxy) {
+      return res.status(404).json({ success: false, message: '代理配置不存在' });
+    }
+
+    const axios = require('axios');
+    const { createProxyAgent } = require('../utils/proxyManager');
+    
+    const agent = createProxyAgent(proxy);
+    if (!agent) {
+      return res.status(400).json({ success: false, message: '无法创建代理agent' });
+    }
+
+    const startTime = Date.now();
+    try {
+      const response = await axios.get('http://cip.cc', {
+        httpsAgent: agent,
+        httpAgent: agent,
+        timeout: 10000,
+        headers: {
+          'User-Agent': 'curl/7.68.0'
+        }
+      });
+      
+      const endTime = Date.now();
+      const latency = endTime - startTime;
+      
+      // 解析响应内容
+      const responseText = response.data;
+      const ipMatch = responseText.match(/IP\s*:\s*([^\n]+)/);
+      const addressMatch = responseText.match(/地址\s*:\s*([^\n]+)/);
+      const data2Match = responseText.match(/数据二\s*:\s*([^\n]+)/);
+      const data3Match = responseText.match(/数据三\s*:\s*([^\n]+)/);
+      
+      const ip = ipMatch ? ipMatch[1].trim() : null;
+      const address = addressMatch ? addressMatch[1].trim() : null;
+      const data2 = data2Match ? data2Match[1].trim() : null;
+      const data3 = data3Match ? data3Match[1].trim() : null;
+      
+      // 更新代理验证信息到数据库
+      await db.updateProxyVerifyInfo(id, true, ip, address, latency);
+      
+      res.json({
+        success: true,
+        message: '代理验证成功',
+        data: {
+          latency: latency,
+          ip: ip,
+          address: address,
+          data2: data2,
+          data3: data3,
+          rawResponse: responseText,
+          is_available: true
+        }
+      });
+    } catch (error) {
+      const endTime = Date.now();
+      const latency = endTime - startTime;
+      
+      // 更新代理验证信息到数据库（标记为不可用）
+      await db.updateProxyVerifyInfo(id, false, null, null, latency);
+      
+      res.status(500).json({
+        success: false,
+        message: '代理验证失败',
+        data: {
+          latency: latency,
+          error: error.message,
+          errorDetails: error.response ? {
+            status: error.response.status,
+            statusText: error.response.statusText
+          } : null,
+          is_available: false
+        }
+      });
+    }
+  } catch (error) {
+    console.error('验证代理配置失败:', error);
+    res.status(500).json({ success: false, message: '验证代理配置失败: ' + error.message });
   }
 });
 

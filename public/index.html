@@ -960,12 +960,54 @@
         </div>
     </div>
 
+    <!-- 代理配置模态框 -->
+    <div class="add-modal" id="proxyModal">
+        <div class="add-box" style="max-width: 900px; min-height: 600px;">
+            <div class="add-header">
+                <h2>🌐 代理配置</h2>
+                <button class="close-btn" onclick="closeProxyModal()" title="关闭">×</button>
+            </div>
+            <div class="add-body">
+                <div class="form-group">
+                    <label style="display: flex; align-items: center; gap: 10px;">
+                        <input type="checkbox" id="proxyEnabled" onchange="toggleProxyEnabled()" style="width: 20px; height: 20px; cursor: pointer;">
+                        <span>启用代理功能</span>
+                    </label>
+                    <p style="margin-top: 8px; color: var(--text-secondary); font-size: 12px;">
+                        启用后，当与上游通信出错或IP被拉黑时，将自动尝试使用代理进行通信
+                    </p>
+                </div>
+
+                <div id="proxyConfigArea" style="margin-top: 20px;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                        <h3 style="margin: 0; font-size: 16px; color: var(--text-primary);">代理列表</h3>
+                        <button class="btn btn-primary" onclick="addProxyConfig()" style="padding: 6px 12px; font-size: 12px;">+ 添加代理</button>
+                    </div>
+                    <div id="proxyList" style="margin-top: 15px;">
+                        <!-- 代理列表将在这里动态生成 -->
+                    </div>
+                </div>
+
+                <div id="proxyStateInfo" style="margin-top: 20px; padding: 15px; background: var(--info-box-bg); border: 1px solid var(--info-box-border); border-radius: 8px; display: none;">
+                    <h4 style="margin: 0 0 10px 0; font-size: 14px; color: var(--text-primary);">当前代理状态</h4>
+                    <p id="proxyStateText" style="margin: 0; color: var(--info-box-text); font-size: 12px;"></p>
+                </div>
+            </div>
+            <div class="add-footer">
+                <button type="button" class="btn" onclick="closeProxyModal()" style="background: var(--table-header-bg); color: var(--text-primary); border: 1px solid var(--border-color);">关闭</button>
+            </div>
+        </div>
+    </div>
+
     <!-- 主内容 -->
     <div class="main-content" id="mainContent">
         <div class="container">
             <div class="header">
                 <h1>🔑 硅基流动API管理</h1>
-                <button class="theme-toggle" id="themeToggle" title="切换暗黑模式">🌙</button>
+                <div style="display: flex; gap: 10px; align-items: center;">
+                    <button class="btn btn-info" onclick="showProxyModal()" style="padding: 8px 16px; font-size: 14px;">🌐 代理配置</button>
+                    <button class="theme-toggle" id="themeToggle" title="切换暗黑模式">🌙</button>
+                </div>
             </div>
             <div class="content">
             <div class="table-container">
@@ -1791,18 +1833,33 @@
         }
 
         // 验证API密钥
-        async function verifyApiKey(id) {
+        async function verifyApiKey(id, proxyId = null) {
             const btn = document.getElementById(`verify-btn-${id}`);
             if (!btn) return;
+            
+            // 如果代理功能开启且没有指定代理，显示选择对话框
+            if (proxyEnabled && proxyId === null && proxyConfigs.length > 0) {
+                showProxySelectDialog(id);
+                return;
+            }
             
             const originalText = btn.textContent;
             btn.disabled = true;
             btn.textContent = '验证中';
             
             try {
+                const requestBody = {};
+                if (proxyId) {
+                    requestBody.proxyId = proxyId;
+                }
+                
                 const response = await fetch(`/api/manage/api-keys/${id}/verify`, {
                     method: 'POST',
-                    headers: getAuthHeaders()
+                    headers: {
+                        ...getAuthHeaders(),
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(requestBody)
                 });
                 
                 if (response.status === 401) {
@@ -1813,7 +1870,8 @@
                 const result = await response.json();
                 
                 if (result.success) {
-                    showAlert(result.message || '验证成功', 'success');
+                    const proxyNote = proxyId ? ` (通过代理验证)` : '';
+                    showAlert(result.message || '验证成功' + proxyNote, 'success');
                     await loadApiKeys();
                 } else {
                     showAlert(result.message || '验证失败', 'error');
@@ -1824,6 +1882,47 @@
                 btn.disabled = false;
                 btn.textContent = originalText;
             }
+        }
+
+        function showProxySelectDialog(keyId) {
+            const dialog = document.createElement('div');
+            dialog.style.cssText = 'position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 1003;';
+            dialog.innerHTML = `
+                <div style="background: var(--container-bg); padding: 25px; border-radius: 12px; max-width: 500px; width: 90%; box-shadow: var(--shadow-lg);">
+                    <h3 style="margin: 0 0 20px 0; color: var(--text-primary); font-size: 18px;">选择验证方式</h3>
+                    <div style="margin-bottom: 15px;">
+                        <button onclick="verifyApiKey(${keyId}, null); this.closest('div[style*=\"position: fixed\"]').remove();" 
+                                style="width: 100%; padding: 12px; margin-bottom: 10px; background: var(--btn-primary-bg); color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 14px;">
+                            直接验证（不使用代理）
+                        </button>
+                    </div>
+                    ${proxyConfigs.length > 0 ? `
+                        <div style="margin-bottom: 15px;">
+                            <label style="display: block; margin-bottom: 10px; color: var(--text-primary); font-weight: 600;">通过代理验证：</label>
+                            ${proxyConfigs.map(proxy => {
+                                const authInfo = proxy.username ? ` (${proxy.username}:***)` : ' (无需认证)';
+                                const verifyInfo = proxy.verifyInfo ? ` - ${proxy.verifyInfo.ip || ''} ${proxy.verifyInfo.address || ''}` : '';
+                                return `
+                                    <button onclick="verifyApiKey(${keyId}, ${proxy.id}); this.closest('div[style*=\"position: fixed\"]').remove();" 
+                                            style="width: 100%; padding: 12px; margin-bottom: 8px; background: var(--btn-info-bg); color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 13px; text-align: left;">
+                                        ${proxy.type.toUpperCase()} ${proxy.host}:${proxy.port}${authInfo}${verifyInfo}
+                                    </button>
+                                `;
+                            }).join('')}
+                        </div>
+                    ` : ''}
+                    <button onclick="this.closest('div[style*=\"position: fixed\"]').remove();" 
+                            style="width: 100%; padding: 10px; background: var(--table-header-bg); color: var(--text-primary); border: 1px solid var(--border-color); border-radius: 6px; cursor: pointer; font-size: 14px;">
+                        取消
+                    </button>
+                </div>
+            `;
+            document.body.appendChild(dialog);
+            dialog.addEventListener('click', (e) => {
+                if (e.target === dialog) {
+                    dialog.remove();
+                }
+            });
         }
 
         // 查询余额
@@ -2318,6 +2417,324 @@
         startAutoRefresh();
         // 立即获取一次当前使用的API key
         fetchCurrentApiKey();
+
+        // 代理配置相关函数
+        let proxyConfigs = [];
+        let proxyEnabled = false;
+        let editingProxyId = null;
+
+        async function showProxyModal() {
+            const modal = document.getElementById('proxyModal');
+            modal.classList.add('show');
+            await loadProxyConfig();
+        }
+
+        function closeProxyModal() {
+            const modal = document.getElementById('proxyModal');
+            modal.classList.remove('show');
+            editingProxyId = null;
+        }
+
+        async function loadProxyConfig() {
+            try {
+                const response = await fetch('/api/manage/proxy/config', {
+                    headers: getAuthHeaders()
+                });
+                
+                if (response.status === 401) {
+                    handleAuthError();
+                    return;
+                }
+                
+                const result = await response.json();
+                if (result.success) {
+                    proxyEnabled = result.data.enabled;
+                    proxyConfigs = result.data.configs || [];
+                    
+                    document.getElementById('proxyEnabled').checked = proxyEnabled;
+                    renderProxyList();
+                    updateProxyStateInfo(result.data.activeState);
+                }
+            } catch (error) {
+                console.error('加载代理配置失败:', error);
+                showAlert('加载代理配置失败', 'error');
+            }
+        }
+
+        async function toggleProxyEnabled() {
+            const enabled = document.getElementById('proxyEnabled').checked;
+            try {
+                const response = await fetch('/api/manage/proxy/enabled', {
+                    method: 'PUT',
+                    headers: {
+                        ...getAuthHeaders(),
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ enabled })
+                });
+                
+                if (response.status === 401) {
+                    handleAuthError();
+                    return;
+                }
+                
+                const result = await response.json();
+                if (result.success) {
+                    proxyEnabled = enabled;
+                    showAlert(result.message, 'success');
+                } else {
+                    document.getElementById('proxyEnabled').checked = !enabled;
+                    showAlert(result.message || '设置失败', 'error');
+                }
+            } catch (error) {
+                console.error('设置代理开关失败:', error);
+                document.getElementById('proxyEnabled').checked = !enabled;
+                showAlert('设置代理开关失败', 'error');
+            }
+        }
+
+        function addProxyConfig() {
+            editingProxyId = null;
+            renderProxyForm();
+        }
+
+        function editProxyConfig(id) {
+            editingProxyId = id;
+            const proxy = proxyConfigs.find(p => p.id === id);
+            if (proxy) {
+                renderProxyForm(proxy);
+            }
+        }
+
+        function cancelProxyEdit() {
+            editingProxyId = null;
+            renderProxyList();
+        }
+
+        function renderProxyForm(proxy = null) {
+            const listDiv = document.getElementById('proxyList');
+            listDiv.innerHTML = `
+                <div style="background: var(--info-box-bg); border: 1px solid var(--info-box-border); border-radius: 8px; padding: 20px;">
+                    <h4 style="margin: 0 0 15px 0; font-size: 14px; color: var(--text-primary);">${proxy ? '编辑代理' : '添加代理'}</h4>
+                    <div class="form-group">
+                        <label>代理类型 *</label>
+                        <select id="proxyType" style="width: 100%; padding: 8px; border: 1px solid var(--border-color); border-radius: 4px; background: var(--container-bg); color: var(--text-primary);">
+                            <option value="socks5" ${proxy && proxy.type === 'socks5' ? 'selected' : ''}>SOCKS5</option>
+                            <option value="http" ${proxy && proxy.type === 'http' ? 'selected' : ''}>HTTP</option>
+                            <option value="https" ${proxy && proxy.type === 'https' ? 'selected' : ''}>HTTPS</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>IP地址 *</label>
+                        <input type="text" id="proxyHost" value="${proxy ? proxy.host : ''}" placeholder="例如: 127.0.0.1" style="width: 100%; padding: 8px; border: 1px solid var(--border-color); border-radius: 4px; background: var(--container-bg); color: var(--text-primary);">
+                    </div>
+                    <div class="form-group">
+                        <label>端口 *</label>
+                        <input type="number" id="proxyPort" value="${proxy ? proxy.port : ''}" placeholder="例如: 1080" style="width: 100%; padding: 8px; border: 1px solid var(--border-color); border-radius: 4px; background: var(--container-bg); color: var(--text-primary);">
+                    </div>
+                    <div class="form-group">
+                        <label>用户名（可选）</label>
+                        <input type="text" id="proxyUsername" value="${proxy ? (proxy.username || '') : ''}" placeholder="留空则不需要认证" style="width: 100%; padding: 8px; border: 1px solid var(--border-color); border-radius: 4px; background: var(--container-bg); color: var(--text-primary);">
+                    </div>
+                    <div class="form-group">
+                        <label>密码（可选）</label>
+                        <input type="password" id="proxyPassword" value="${proxy ? (proxy.password || '') : ''}" placeholder="留空则不需要认证" style="width: 100%; padding: 8px; border: 1px solid var(--border-color); border-radius: 4px; background: var(--container-bg); color: var(--text-primary);">
+                    </div>
+                    <div style="display: flex; gap: 10px; margin-top: 15px;">
+                        <button class="btn btn-primary" onclick="saveProxyConfig()" style="flex: 1;">保存</button>
+                        <button class="btn" onclick="cancelProxyEdit()" style="background: var(--table-header-bg); color: var(--text-primary); border: 1px solid var(--border-color); flex: 1;">取消</button>
+                    </div>
+                </div>
+            `;
+        }
+
+        async function saveProxyConfig() {
+            const type = document.getElementById('proxyType').value;
+            const host = document.getElementById('proxyHost').value.trim();
+            const port = document.getElementById('proxyPort').value.trim();
+            const username = document.getElementById('proxyUsername').value.trim();
+            const password = document.getElementById('proxyPassword').value.trim();
+
+            if (!host || !port) {
+                showAlert('IP地址和端口不能为空', 'error');
+                return;
+            }
+
+            try {
+                const url = editingProxyId 
+                    ? `/api/manage/proxy/config/${editingProxyId}`
+                    : '/api/manage/proxy/config';
+                const method = editingProxyId ? 'PUT' : 'POST';
+
+                const response = await fetch(url, {
+                    method,
+                    headers: {
+                        ...getAuthHeaders(),
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ type, host, port, username: username || null, password: password || null })
+                });
+                
+                if (response.status === 401) {
+                    handleAuthError();
+                    return;
+                }
+                
+                const result = await response.json();
+                if (result.success) {
+                    showAlert(editingProxyId ? '更新成功' : '添加成功', 'success');
+                    await loadProxyConfig();
+                } else {
+                    showAlert(result.message || '操作失败', 'error');
+                }
+            } catch (error) {
+                console.error('保存代理配置失败:', error);
+                showAlert('保存代理配置失败', 'error');
+            }
+        }
+
+        async function deleteProxyConfig(id) {
+            if (!confirm('确定要删除这个代理配置吗？')) {
+                return;
+            }
+
+            try {
+                const response = await fetch(`/api/manage/proxy/config/${id}`, {
+                    method: 'DELETE',
+                    headers: getAuthHeaders()
+                });
+                
+                if (response.status === 401) {
+                    handleAuthError();
+                    return;
+                }
+                
+                const result = await response.json();
+                if (result.success) {
+                    showAlert('删除成功', 'success');
+                    await loadProxyConfig();
+                } else {
+                    showAlert(result.message || '删除失败', 'error');
+                }
+            } catch (error) {
+                console.error('删除代理配置失败:', error);
+                showAlert('删除代理配置失败', 'error');
+            }
+        }
+
+        function renderProxyList() {
+            const listDiv = document.getElementById('proxyList');
+            if (proxyConfigs.length === 0) {
+                listDiv.innerHTML = '<p style="color: var(--text-secondary); text-align: center; padding: 20px;">暂无代理配置，点击"添加代理"按钮添加</p>';
+                return;
+            }
+
+            listDiv.innerHTML = proxyConfigs.map(proxy => {
+                const authInfo = proxy.username ? ` (${proxy.username}:***)` : ' (无需认证)';
+                const isAvailable = proxy.is_available === 1;
+                const statusBadge = isAvailable 
+                    ? '<span style="background: #27ae60; color: white; padding: 2px 8px; border-radius: 4px; font-size: 11px; margin-left: 8px;">可用</span>'
+                    : '<span style="background: #e74c3c; color: white; padding: 2px 8px; border-radius: 4px; font-size: 11px; margin-left: 8px;">不可用</span>';
+                
+                // 使用数据库中的验证信息或临时验证信息
+                const verifyInfo = proxy.verify_ip || proxy.verifyInfo ? `
+                    <div style="margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--border-color);">
+                        <div style="font-size: 12px; color: var(--text-secondary);">
+                            <div>IP: <strong style="color: var(--text-primary);">${proxy.verify_ip || proxy.verifyInfo?.ip || '未知'}</strong></div>
+                            <div>地址: <strong style="color: var(--text-primary);">${proxy.verify_address || proxy.verifyInfo?.address || '未知'}</strong></div>
+                            ${proxy.verifyInfo?.data2 ? `<div>数据二: ${proxy.verifyInfo.data2}</div>` : ''}
+                            ${(proxy.verify_latency || proxy.verifyInfo?.latency) ? `<div>延迟: ${proxy.verify_latency || proxy.verifyInfo.latency}ms</div>` : ''}
+                            ${proxy.verified_at ? `<div>验证时间: ${new Date(proxy.verified_at).toLocaleString()}</div>` : ''}
+                        </div>
+                    </div>
+                ` : '';
+                return `
+                    <div style="background: var(--info-box-bg); border: 1px solid var(--info-box-border); border-radius: 8px; padding: 15px; margin-bottom: 10px;">
+                        <div style="display: flex; justify-content: space-between; align-items: center;">
+                            <div style="flex: 1;">
+                                <div>
+                                    <strong style="color: var(--text-primary);">${proxy.type.toUpperCase()}</strong>
+                                    <span style="color: var(--text-secondary); margin-left: 10px;">${proxy.host}:${proxy.port}${authInfo}</span>
+                                    ${statusBadge}
+                                </div>
+                                ${verifyInfo}
+                            </div>
+                            <div style="display: flex; gap: 8px;">
+                                <button class="btn btn-success" onclick="verifyProxyConfig(${proxy.id})" id="verify-proxy-${proxy.id}" style="padding: 4px 8px; font-size: 12px;">验证</button>
+                                <button class="btn btn-info" onclick="editProxyConfig(${proxy.id})" style="padding: 4px 8px; font-size: 12px;">编辑</button>
+                                <button class="btn btn-danger" onclick="deleteProxyConfig(${proxy.id})" style="padding: 4px 8px; font-size: 12px;">删除</button>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        async function verifyProxyConfig(id) {
+            const btn = document.getElementById(`verify-proxy-${id}`);
+            if (btn.disabled) return;
+            
+            btn.disabled = true;
+            const originalText = btn.textContent;
+            btn.textContent = '验证中...';
+            
+            try {
+                const response = await fetch(`/api/manage/proxy/config/${id}/verify`, {
+                    method: 'POST',
+                    headers: getAuthHeaders()
+                });
+                
+                if (response.status === 401) {
+                    handleAuthError();
+                    return;
+                }
+                
+                const result = await response.json();
+                if (result.success) {
+                    // 更新代理配置的验证信息（从数据库重新加载）
+                    await loadProxyConfig();
+                    showAlert(`验证成功！IP: ${result.data.ip}, 地址: ${result.data.address}, 延迟: ${result.data.latency}ms`, 'success');
+                } else {
+                    // 验证失败，也重新加载以更新状态
+                    await loadProxyConfig();
+                    showAlert(`验证失败: ${result.message}`, 'error');
+                }
+            } catch (error) {
+                console.error('验证代理配置失败:', error);
+                showAlert('验证代理配置失败', 'error');
+            } finally {
+                btn.disabled = false;
+                btn.textContent = originalText;
+            }
+        }
+
+        function updateProxyStateInfo(state) {
+            const stateInfo = document.getElementById('proxyStateInfo');
+            const stateText = document.getElementById('proxyStateText');
+            
+            if (state && state.active_proxy_id) {
+                const proxy = proxyConfigs.find(p => p.id === state.active_proxy_id);
+                if (proxy) {
+                    const expiresAt = new Date(state.expires_at);
+                    const now = new Date();
+                    const remainingMinutes = Math.ceil((expiresAt - now) / (1000 * 60));
+                    
+                    stateInfo.style.display = 'block';
+                    stateText.textContent = `当前使用代理: ${proxy.type.toUpperCase()} ${proxy.host}:${proxy.port}，将在 ${remainingMinutes} 分钟后恢复使用本地IP`;
+                } else {
+                    stateInfo.style.display = 'none';
+                }
+            } else {
+                stateInfo.style.display = 'none';
+            }
+        }
+
+        // 点击模态框外部关闭
+        document.getElementById('proxyModal')?.addEventListener('click', (e) => {
+            if (e.target.id === 'proxyModal') {
+                closeProxyModal();
+            }
+        });
     </script>
 </body>
 </html>
