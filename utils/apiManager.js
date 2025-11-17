@@ -34,7 +34,10 @@ async function getCurrentApiKey() {
   // 如果当前有使用的key，检查它是否仍然可用
   if (currentApiKeyId) {
     const currentKey = await db.getApiKeyById(currentApiKeyId);
-    if (currentKey && currentKey.status === 'active') {
+    // 检查密钥是否可用：is_available=1 且 status不是'error'（允许'active'或'insufficient'）
+    if (currentKey && 
+        (currentKey.is_available === 1 || currentKey.is_available === null) &&
+        currentKey.status !== 'error') {
       return currentKey;
     }
     // 当前key不可用，清除并切换到下一个
@@ -44,7 +47,10 @@ async function getCurrentApiKey() {
   // 没有当前key或当前key不可用，从最早的开始查找
   for (const key of activeApiKeys) {
     const fullKeyInfo = await db.getApiKeyById(key.id);
-    if (fullKeyInfo && fullKeyInfo.status === 'active') {
+    // 检查密钥是否可用：is_available=1 且 status不是'error'（允许'active'或'insufficient'）
+    if (fullKeyInfo && 
+        (fullKeyInfo.is_available === 1 || fullKeyInfo.is_available === null) &&
+        fullKeyInfo.status !== 'error') {
       currentApiKeyId = fullKeyInfo.id;
       return fullKeyInfo;
     }
@@ -76,7 +82,10 @@ async function switchToNextApiKey() {
     const index = (startIndex + i) % activeApiKeys.length;
     const key = activeApiKeys[index];
     const fullKeyInfo = await db.getApiKeyById(key.id);
-    if (fullKeyInfo && fullKeyInfo.status === 'active') {
+    // 检查密钥是否可用：is_available=1 且 status不是'error'（允许'active'或'insufficient'）
+    if (fullKeyInfo && 
+        (fullKeyInfo.is_available === 1 || fullKeyInfo.is_available === null) &&
+        fullKeyInfo.status !== 'error') {
       currentApiKeyId = fullKeyInfo.id;
       return fullKeyInfo;
     }
@@ -258,14 +267,28 @@ async function refreshApiKeys() {
   await loadActiveApiKeys();
 }
 
-// 检查错误响应中是否包含"busy"字样（不区分大小写）
+// 检查错误响应中是否包含"busy"字样或50603错误码（IP被拉黑）
 function isBusyError(error) {
   if (!error || !error.response) return false;
   
   const responseData = error.response.data;
   if (!responseData) return false;
   
-  // 检查响应体中的文本
+  // 优先检查错误码 50603（系统繁忙，IP被拉黑）
+  if (typeof responseData === 'object' && responseData !== null) {
+    // 检查顶层 code 字段
+    if (responseData.code === 50603 || responseData.code === '50603') {
+      return true;
+    }
+    // 检查嵌套的 error.code
+    if (responseData.error && typeof responseData.error === 'object') {
+      if (responseData.error.code === 50603 || responseData.error.code === '50603') {
+        return true;
+      }
+    }
+  }
+  
+  // 检查响应体中的文本（兼容旧逻辑）
   let responseText = '';
   
   if (typeof responseData === 'string') {

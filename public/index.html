@@ -780,7 +780,15 @@
                 let balanceDisplay = '未查询';
                 let balanceClass = 'balance-unknown';
                 let balanceValue = 0;
-                if (key.balance !== null && key.balance !== undefined) {
+                
+                // 检查是否是API密钥无效的情况（通过last_error判断，不依赖status）
+                const isInvalidKey = key.last_error && key.last_error.includes('无效');
+                
+                if (isInvalidKey) {
+                    // 密钥无效，显示"密钥无效"
+                    balanceDisplay = '密钥无效';
+                    balanceClass = 'balance-unknown';
+                } else if (key.balance !== null && key.balance !== undefined) {
                     balanceValue = parseFloat(key.balance);
                     balanceDisplay = `¥${balanceValue.toFixed(2)}`;
                     balanceClass = balanceValue >= 0.5 ? 'balance-available' : 'balance-insufficient';
@@ -916,13 +924,34 @@
                 if (result.success) {
                     // 显示余额金额
                     if (result.data.balance !== null && result.data.balance !== undefined) {
-                        balanceEl.textContent = `¥${parseFloat(result.data.balance).toFixed(2)}`;
-                        balanceEl.className = `balance-text ${
-                            parseFloat(result.data.balance) >= 0.5 ? 'balance-available' : 'balance-insufficient'
-                        }`;
+                        const balance = parseFloat(result.data.balance);
+                        // 检查是否是API密钥无效的情况（余额为0且message包含"无效"）
+                        if (balance === 0 && result.data.message && result.data.message.includes('无效')) {
+                            balanceEl.textContent = '密钥无效';
+                            balanceEl.className = 'balance-text balance-unknown';
+                            balanceEl.title = result.data.message;
+                        } else {
+                            balanceEl.textContent = `¥${balance.toFixed(2)}`;
+                            balanceEl.className = `balance-text ${
+                                balance >= 0.5 ? 'balance-available' : 'balance-insufficient'
+                            }`;
+                            if (result.data.message) {
+                                balanceEl.title = result.data.message;
+                            }
+                        }
                     } else {
-                        balanceEl.textContent = '无法获取';
-                        balanceEl.className = 'balance-text balance-unknown';
+                        // 如果message包含错误信息，显示错误信息
+                        if (result.data.message && (result.data.message.includes('无效') || result.data.message.includes('失败'))) {
+                            balanceEl.textContent = result.data.message.length > 10 ? result.data.message.substring(0, 10) + '...' : result.data.message;
+                            balanceEl.className = 'balance-text balance-unknown';
+                            balanceEl.title = result.data.message;
+                        } else {
+                            balanceEl.textContent = '无法获取';
+                            balanceEl.className = 'balance-text balance-unknown';
+                            if (result.data.message) {
+                                balanceEl.title = result.data.message;
+                            }
+                        }
                     }
                     showAlert(result.data.message);
                     // 如果状态变化，重新加载列表
@@ -1023,10 +1052,9 @@
 
                 const result = await response.json();
                 if (result.success) {
-                    showAlert(result.message);
-                    // 如果切换为可用，且之前是异常状态，需要清除异常状态
-                    // 注意：这里只是切换可用/不可用，异常状态由后台自动管理
-                    loadApiKeys();
+                    showAlert(result.message, 'success');
+                    // 立即重新加载列表，更新显示状态
+                    await loadApiKeys();
                 } else {
                     showAlert(result.message || '切换失败', 'error');
                 }
@@ -1067,7 +1095,17 @@
                             // 尝试解析JSON格式的错误信息
                             try {
                                 const errorObj = JSON.parse(errorText);
-                                if (errorObj.data) {
+                                // 优先显示上游错误信息
+                                if (errorObj.upstream_error) {
+                                    // 如果上游错误是对象，格式化显示
+                                    if (typeof errorObj.upstream_error === 'object') {
+                                        errorText = `上游错误信息:\n${JSON.stringify(errorObj.upstream_error, null, 2)}\n\n状态码: ${errorObj.status || 'N/A'}\n状态文本: ${errorObj.statusText || 'N/A'}`;
+                                    } else {
+                                        errorText = `上游错误信息: ${errorObj.upstream_error}\n\n状态码: ${errorObj.status || 'N/A'}\n状态文本: ${errorObj.statusText || 'N/A'}`;
+                                    }
+                                } else if (errorObj.data) {
+                                    errorText = JSON.stringify(errorObj, null, 2);
+                                } else {
                                     errorText = JSON.stringify(errorObj, null, 2);
                                 }
                             } catch (e) {

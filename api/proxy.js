@@ -31,21 +31,61 @@ setInterval(async () => {
   }
 }, 5 * 60 * 1000); // 每5分钟清理一次
 
+// API密钥认证中间件（使用ADMIN_PASSWORD环境变量）
+const apiAuth = (req, res, next) => {
+  const apiKey = process.env.ADMIN_PASSWORD;
+  
+  // 如果没有设置API密钥，跳过认证
+  if (!apiKey) {
+    return next();
+  }
+  
+  // 检查Authorization头
+  const authHeader = req.headers.authorization;
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({
+      error: {
+        message: '需要API密钥认证',
+        type: 'unauthorized',
+        reason: '缺少Authorization头或格式错误'
+      }
+    });
+  }
+  
+  // 提取并验证token
+  const token = authHeader.substring(7);
+  if (token !== apiKey) {
+    return res.status(401).json({
+      error: {
+        message: 'API密钥无效',
+        type: 'unauthorized',
+        reason: '提供的API密钥不正确'
+      }
+    });
+  }
+  
+  // 认证通过
+  next();
+};
+
 // 转发聊天完成请求
-router.post('/chat/completions', async (req, res) => {
+router.post('/chat/completions', apiAuth, async (req, res) => {
   try {
-    // 1. 检查IP是否被拉黑
+    // 1. 检查代理服务器IP是否被上游拉黑
+    // 注意：无论有多少个客户端IP发送请求，上游（硅基流动）看到的始终是代理服务器本身的IP
+    // 如果代理服务器IP被拉黑，所有转发请求都会失败，因此必须拒绝所有客户端请求
     const blockInfo = await db.isIpBlocked();
     if (blockInfo) {
       const unblockTime = new Date(blockInfo.unblock_at);
       const now = new Date();
       const remainingMinutes = Math.ceil((unblockTime - now) / (1000 * 60));
       
+      console.log(`代理服务器IP已被上游拉黑，拒绝所有客户端请求（剩余 ${remainingMinutes} 分钟）`);
       return res.status(503).json({
         error: {
           message: `服务器IP已被硅基流动拉黑，请等待 ${remainingMinutes} 分钟后重试`,
           type: 'ip_blocked',
-          reason: blockInfo.reason || 'IP被硅基流动拉黑',
+          reason: blockInfo.reason || '代理服务器IP被硅基流动拉黑',
           unblock_at: blockInfo.unblock_at,
           remaining_minutes: remainingMinutes
         }
@@ -78,20 +118,79 @@ router.post('/chat/completions', async (req, res) => {
     let requestSuccess = false; // 标记整个请求是否成功
     let lastError = null; // 记录最后一个错误
     let clientDisconnected = false; // 标记客户端是否断开连接
+    let requestCompleted = false; // 标记请求是否正常完成（成功或失败但已处理）
 
-    // 监听客户端断开连接
+    // 检查客户端是否已断开的辅助函数（只检查，不设置标志）
+    const checkClientDisconnected = () => {
+      // 只检查 clientDisconnected 标志，不在这里设置
+      // 标志应该只在事件监听器中设置，确保是真正的断开事件
+      return clientDisconnected;
+    };
+
+    // 移除断开检测事件监听器的函数
+    const removeDisconnectListeners = () => {
+      requestCompleted = true;
+      // 移除事件监听器，避免正常完成时触发断开日志
+      if (req.socket) {
+        req.socket.removeAllListeners('close');
+        req.socket.removeAllListeners('error');
+      }
+      req.removeAllListeners('close');
+      req.removeAllListeners('aborted');
+    };
+
+    // 监听客户端断开连接（多种事件）
+    // 只有在这些事件真正触发时，才设置 clientDisconnected 标志
+    // 但如果请求已经正常完成，则不记录日志
     req.on('close', () => {
-      clientDisconnected = true;
-      console.log(`客户端连接已断开，停止处理请求 (API Key ${apiKeyId} ${apiKeyName})`);
+      if (!clientDisconnected && !requestCompleted) {
+        clientDisconnected = true;
+        console.log(`客户端连接已关闭，停止处理请求 (API Key ${apiKeyId} ${apiKeyName})`);
+      }
     });
 
-    while (keyAttempts < maxKeyAttempts && !requestSuccess && !clientDisconnected) {
+    req.on('aborted', () => {
+      if (!clientDisconnected && !requestCompleted) {
+        clientDisconnected = true;
+        console.log(`客户端请求已中止，停止处理请求 (API Key ${apiKeyId} ${apiKeyName})`);
+      }
+    });
+
+    if (req.socket) {
+      req.socket.on('close', () => {
+        if (!clientDisconnected && !requestCompleted) {
+          clientDisconnected = true;
+          console.log(`客户端Socket已关闭，停止处理请求 (API Key ${apiKeyId} ${apiKeyName})`);
+        }
+      });
+
+      req.socket.on('error', () => {
+        if (!clientDisconnected && !requestCompleted) {
+          clientDisconnected = true;
+          console.log(`客户端Socket错误，停止处理请求 (API Key ${apiKeyId} ${apiKeyName})`);
+        }
+      });
+
+      // 检查 socket 是否已经关闭（用于初始检查）
+      if (req.socket.destroyed && !requestCompleted) {
+        clientDisconnected = true;
+        console.log(`客户端Socket已销毁，停止处理请求 (API Key ${apiKeyId} ${apiKeyName})`);
+      }
+    }
+
+    while (keyAttempts < maxKeyAttempts && !requestSuccess && !checkClientDisconnected()) {
       // 对当前API key进行重试
       let retryCount = 0;
       let keySuccess = false; // 当前key是否成功
 
-      while (retryCount <= MAX_RETRIES && !keySuccess && !clientDisconnected) {
+      while (retryCount <= MAX_RETRIES && !keySuccess && !checkClientDisconnected()) {
         try {
+          // 在发送请求前检查客户端是否断开
+          if (checkClientDisconnected()) {
+            console.log(`客户端已断开，停止发送请求 (API Key ${apiKeyId} ${apiKeyName})`);
+            return;
+          }
+
           // 检查是否是流式请求
           const isStreaming = req.body && req.body.stream === true;
 
@@ -110,6 +209,12 @@ router.post('/chat/completions', async (req, res) => {
             req.body,
             axiosConfig
           );
+
+          // 在收到响应后检查客户端是否断开
+          if (checkClientDisconnected()) {
+            console.log(`客户端已断开，停止处理响应 (API Key ${apiKeyId} ${apiKeyName})`);
+            return;
+          }
 
           // 成功：更新API key状态，增加调用次数
           keySuccess = true;
@@ -145,40 +250,69 @@ router.post('/chat/completions', async (req, res) => {
             }
 
             response.data.on('data', (chunk) => {
+              if (checkClientDisconnected()) {
+                if (response.data && typeof response.data.destroy === 'function') {
+                  response.data.destroy();
+                }
+                return;
+              }
               if (!res.headersSent) {
                 res.writeHead(200, streamHeaders);
               }
-              res.write(chunk);
+              try {
+                res.write(chunk);
+              } catch (e) {
+                // 如果写入失败（客户端已断开），停止流式传输
+                if (response.data && typeof response.data.destroy === 'function') {
+                  response.data.destroy();
+                }
+              }
             });
 
             response.data.on('end', () => {
-              res.end();
-              if (shouldAutoQuery) {
-                handleAutoQueryBalance(apiKeyId, autoQueryThreshold);
+              if (!checkClientDisconnected()) {
+                res.end();
+                if (shouldAutoQuery) {
+                  handleAutoQueryBalance(apiKeyId, autoQueryThreshold);
+                }
+                // 流式请求正常完成，移除断开检测监听器
+                removeDisconnectListeners();
               }
             });
 
             response.data.on('error', (err) => {
               console.error(`流式响应错误 (API Key ${apiKeyId} ${apiKeyName}):`, err.message);
-              if (!res.headersSent && !clientDisconnected) {
-                res.status(500).json({
-                  error: {
-                    message: '流式响应错误',
-                    type: 'stream_error',
-                    reason: err.message
-                  }
-                });
+              if (!res.headersSent && !checkClientDisconnected()) {
+                try {
+                  res.status(500).json({
+                    error: {
+                      message: '流式响应错误',
+                      type: 'stream_error',
+                      reason: err.message
+                    }
+                  });
+                } catch (e) {
+                  // 客户端已断开，忽略错误
+                }
               } else {
-                res.end();
+                try {
+                  res.end();
+                } catch (e) {
+                  // 客户端已断开，忽略错误
+                }
               }
             });
 
-            req.on('close', () => {
+            // 监听客户端断开，停止流式传输
+            const stopStreaming = () => {
               clientDisconnected = true;
               if (response.data && typeof response.data.destroy === 'function') {
                 response.data.destroy();
               }
-            });
+            };
+            req.on('close', stopStreaming);
+            req.on('aborted', stopStreaming);
+            req.socket?.on('close', stopStreaming);
 
             return; // 流式请求直接返回
           }
@@ -188,11 +322,13 @@ router.post('/chat/completions', async (req, res) => {
             handleAutoQueryBalance(apiKeyId, autoQueryThreshold);
           }
 
+          // 非流式请求正常完成，移除断开检测监听器
+          removeDisconnectListeners();
           return res.json(response.data);
 
         } catch (error) {
           // 如果客户端已断开，停止处理
-          if (clientDisconnected) {
+          if (checkClientDisconnected()) {
             console.log(`客户端已断开，停止重试 (API Key ${apiKeyId} ${apiKeyName})`);
             return;
           }
@@ -200,20 +336,31 @@ router.post('/chat/completions', async (req, res) => {
           lastError = error;
           console.error(`API Key ${apiKeyId} (${apiKeyName}) 请求失败 (重试 ${retryCount}/${MAX_RETRIES}):`, error.message);
 
-          // 检查是否是busy错误（IP被拉黑）
+          // 检查是否是50603错误（代理服务器IP被上游拉黑）
+          // 重要：无论有多少个客户端IP，上游看到的始终是代理服务器本身的IP
+          // 当检测到50603错误时，说明代理服务器IP已被上游拉黑，必须立即停止所有操作
+          // 拒绝所有后续客户端请求，避免继续转发请求导致上游延长封禁时间
           if (isBusyError(error)) {
-            console.error(`检测到busy错误，IP可能被硅基流动拉黑 (API Key ${apiKeyId} ${apiKeyName})`);
-            await db.blockIp('检测到busy错误响应');
+            console.error(`⚠️ 检测到50603错误（系统繁忙），代理服务器IP已被硅基流动拉黑！立即停止所有操作并拒绝后续所有客户端请求 (API Key ${apiKeyId} ${apiKeyName})`);
+            
+            // 立即记录代理服务器IP拉黑状态（30分钟），后续所有客户端请求将在开始就被拒绝
+            if (!checkClientDisconnected()) {
+              await db.blockIp('检测到50603错误（系统繁忙），代理服务器IP被上游拉黑30分钟');
+              console.error(`🚫 代理服务器IP已被拉黑，30分钟内将拒绝所有客户端请求，不再向上游转发任何请求`);
+            }
             
             const unblockTime = new Date(Date.now() + 30 * 60 * 1000);
             const remainingMinutes = 30;
             
-            if (!clientDisconnected) {
+            // 立即返回，停止所有后续操作（包括重试、切换key、查询余额等）
+            // 不执行任何可能触发上游请求的操作
+            if (!checkClientDisconnected()) {
+              removeDisconnectListeners(); // 请求已处理完成（虽然是错误），移除断开检测
               return res.status(503).json({
                 error: {
                   message: `服务器IP已被硅基流动拉黑，请等待 ${remainingMinutes} 分钟后重试`,
                   type: 'ip_blocked',
-                  reason: '上游API返回busy错误，IP被拉黑',
+                  reason: '上游API返回50603错误（系统繁忙），代理服务器IP被拉黑30分钟',
                   unblock_at: unblockTime.toISOString(),
                   remaining_minutes: remainingMinutes
                 }
@@ -222,25 +369,127 @@ router.post('/chat/completions', async (req, res) => {
             return;
           }
 
-          // 记录错误（包含更详细的错误信息）
+          // 记录错误（只保存关键错误信息，过滤对话内容）
           const errorMessage = getErrorMessage(error);
-          const detailedError = error.response ? JSON.stringify({
-            status: error.response.status,
-            statusText: error.response.statusText,
-            data: error.response.data
-          }) : errorMessage;
+          let detailedError = errorMessage;
+          if (error.response) {
+            try {
+              // 只提取关键错误信息，不保存对话内容
+              const responseData = error.response.data;
+              const errorInfo = {
+                status: error.response.status,
+                statusText: error.response.statusText
+              };
+              
+              // 需要过滤的字段（可能包含对话内容）
+              const filteredFields = ['messages', 'prompt', 'input', 'content', 'text', 'choices', 'data', 'body'];
+              
+              if (responseData !== undefined && responseData !== null) {
+                if (typeof responseData === 'string') {
+                  // 如果是字符串，检查是否包含对话内容
+                  // 如果字符串太长（可能是对话内容），只保存前200个字符
+                  if (responseData.length > 200) {
+                    errorInfo.upstream_error = responseData.substring(0, 200) + '... (已截断)';
+                  } else {
+                    errorInfo.upstream_error = responseData;
+                  }
+                } else if (typeof responseData === 'object') {
+                  // 只提取关键错误字段
+                  const extracted = {};
+                  
+                  // 优先提取标准错误字段
+                  if (responseData.error) {
+                    // 如果 error 是对象，提取其关键字段
+                    if (typeof responseData.error === 'object') {
+                      if (responseData.error.code) extracted.code = responseData.error.code;
+                      if (responseData.error.message) extracted.message = responseData.error.message;
+                      if (responseData.error.type) extracted.type = responseData.error.type;
+                      if (responseData.error.param) extracted.param = responseData.error.param;
+                    } else {
+                      extracted.error = responseData.error;
+                    }
+                  }
+                  
+                  // 直接提取顶层的关键字段
+                  if (responseData.code !== undefined) extracted.code = responseData.code;
+                  if (responseData.message !== undefined) extracted.message = responseData.message;
+                  if (responseData.type !== undefined) extracted.type = responseData.type;
+                  if (responseData.param !== undefined) extracted.param = responseData.param;
+                  if (responseData.status !== undefined) extracted.status = responseData.status;
+                  if (responseData.reason !== undefined) extracted.reason = responseData.reason;
+                  
+                  // 提取其他非对话相关的字段（但排除已知的对话字段）
+                  for (const key in responseData) {
+                    if (responseData.hasOwnProperty(key) && 
+                        !filteredFields.includes(key.toLowerCase()) &&
+                        !extracted.hasOwnProperty(key)) {
+                      const value = responseData[key];
+                      // 只提取基本类型，不提取复杂对象和数组（可能包含对话）
+                      if (value !== null && 
+                          (typeof value === 'string' || 
+                           typeof value === 'number' || 
+                           typeof value === 'boolean')) {
+                        // 如果是字符串且太长，截断
+                        if (typeof value === 'string' && value.length > 200) {
+                          extracted[key] = value.substring(0, 200) + '... (已截断)';
+                        } else {
+                          extracted[key] = value;
+                        }
+                      }
+                    }
+                  }
+                  
+                  if (Object.keys(extracted).length > 0) {
+                    errorInfo.upstream_error = extracted;
+                  } else {
+                    errorInfo.upstream_error = '[无关键错误信息]';
+                  }
+                } else {
+                  errorInfo.upstream_error = responseData;
+                }
+              } else {
+                errorInfo.upstream_error = null;
+              }
+              
+              detailedError = JSON.stringify(errorInfo);
+            } catch (e) {
+              // 如果序列化失败，只保存基本信息
+              detailedError = JSON.stringify({
+                status: error.response.status,
+                statusText: error.response.statusText,
+                upstream_error: '[无法解析上游错误]'
+              });
+            }
+          }
           
-          await db.recordUsage(apiKeyId, false, detailedError);
-          await markApiKeyStatus(apiKeyId, 'error', errorMessage);
+          // 只有在客户端未断开时才记录错误
+          if (!checkClientDisconnected()) {
+            await db.recordUsage(apiKeyId, false, detailedError);
+            await markApiKeyStatus(apiKeyId, 'error', errorMessage);
+          }
 
           // 如果不是最后一次重试，等待后继续
-          if (retryCount < MAX_RETRIES && !clientDisconnected) {
+          if (retryCount < MAX_RETRIES && !checkClientDisconnected()) {
             // 在重试前查询余额，判断是否因为欠费导致
+            if (checkClientDisconnected()) {
+              console.log(`客户端已断开，停止查询余额 (API Key ${apiKeyId} ${apiKeyName})`);
+              return;
+            }
             console.log(`API Key ${apiKeyId} (${apiKeyName}) 重试前查询余额...`);
             const balanceInfo = await queryBalance(apiKey);
             
+            if (checkClientDisconnected()) {
+              console.log(`客户端已断开，停止处理余额查询结果 (API Key ${apiKeyId} ${apiKeyName})`);
+              return;
+            }
+            
             if (balanceInfo.success && balanceInfo.balance !== null) {
               await db.updateApiKeyBalance(apiKeyId, balanceInfo.balance);
+              
+              if (checkClientDisconnected()) {
+                console.log(`客户端已断开，停止处理余额更新 (API Key ${apiKeyId} ${apiKeyName})`);
+                return;
+              }
               
               // 如果余额<1，标记为欠费并切换到下一个key
               if (balanceInfo.balance < 1) {
@@ -254,17 +503,19 @@ router.post('/chat/completions', async (req, res) => {
             }
 
             // 等待30秒后重试（检查客户端是否断开）
-            if (!clientDisconnected) {
+            if (!checkClientDisconnected()) {
               console.log(`等待 ${RETRY_DELAY / 1000} 秒后重试 API Key ${apiKeyId} (${apiKeyName})...`);
-              // 分段等待，每5秒检查一次客户端连接状态
+              // 分段等待，每1秒检查一次客户端连接状态（更频繁检查）
               // 在等待期间，保持当前API密钥ID的更新（用于前端显示）
               setCurrentApiKeyId(apiKeyId);
-              for (let i = 0; i < RETRY_DELAY / 5000 && !clientDisconnected; i++) {
-                await new Promise(resolve => setTimeout(resolve, 5000));
+              const checkInterval = 1000; // 每1秒检查一次
+              const totalChecks = Math.ceil(RETRY_DELAY / checkInterval);
+              for (let i = 0; i < totalChecks && !checkClientDisconnected(); i++) {
+                await new Promise(resolve => setTimeout(resolve, checkInterval));
                 // 每次检查时也更新状态
                 setCurrentApiKeyId(apiKeyId);
               }
-              if (clientDisconnected) {
+              if (checkClientDisconnected()) {
                 console.log(`客户端已断开，停止重试 (API Key ${apiKeyId} ${apiKeyName})`);
                 return;
               }
@@ -274,23 +525,34 @@ router.post('/chat/completions', async (req, res) => {
             retryCount++;
           } else {
             // 重试次数用尽，标记为异常状态
-            console.log(`API Key ${apiKeyId} (${apiKeyName}) 重试 ${MAX_RETRIES} 次后仍然失败，标记为异常状态`);
-            await markApiKeyStatus(apiKeyId, 'error', getErrorMessage(error));
-            await checkAndUpdateAvailability(apiKeyId);
-            lastErrorKeyId = apiKeyId;
+            if (!checkClientDisconnected()) {
+              console.log(`API Key ${apiKeyId} (${apiKeyName}) 重试 ${MAX_RETRIES} 次后仍然失败，标记为异常状态`);
+              await markApiKeyStatus(apiKeyId, 'error', getErrorMessage(error));
+              await checkAndUpdateAvailability(apiKeyId);
+              lastErrorKeyId = apiKeyId;
+            }
             break; // 跳出重试循环，切换到下一个key
           }
         }
       }
 
       // 如果当前key成功了，检查是否需要尝试恢复之前出错的key
-      if (keySuccess && lastErrorKeyId && lastErrorKeyId !== apiKeyId) {
+      if (keySuccess && lastErrorKeyId && lastErrorKeyId !== apiKeyId && !checkClientDisconnected()) {
         // 检查之前出错的key的余额
         const errorKeyInfo = await db.getApiKeyById(lastErrorKeyId);
-        if (errorKeyInfo) {
+        if (errorKeyInfo && !checkClientDisconnected()) {
           const balanceInfo = await queryBalance(errorKeyInfo.api_key);
+          if (checkClientDisconnected()) {
+            console.log(`客户端已断开，停止恢复之前出错的key (API Key ${lastErrorKeyId})`);
+            return;
+          }
           if (balanceInfo.success && balanceInfo.balance !== null) {
             await db.updateApiKeyBalance(lastErrorKeyId, balanceInfo.balance);
+            
+            if (checkClientDisconnected()) {
+              console.log(`客户端已断开，停止处理恢复操作 (API Key ${lastErrorKeyId})`);
+              return;
+            }
             
             // 如果余额>=1，尝试恢复
             if (balanceInfo.balance >= 1) {
@@ -311,10 +573,15 @@ router.post('/chat/completions', async (req, res) => {
       }
 
       // 如果当前key失败了，切换到下一个
-      if (!keySuccess && !clientDisconnected) {
+      if (!keySuccess && !checkClientDisconnected()) {
         keyInfo = await switchToNextApiKey();
+        if (checkClientDisconnected()) {
+          console.log(`客户端已断开，停止切换API key`);
+          return;
+        }
         if (!keyInfo) {
-          if (!clientDisconnected) {
+          if (!checkClientDisconnected()) {
+            removeDisconnectListeners(); // 请求已处理完成（虽然是错误），移除断开检测
             return res.status(503).json({
               error: {
                 message: '所有API密钥都不可用',
@@ -336,23 +603,30 @@ router.post('/chat/completions', async (req, res) => {
     }
 
     // 如果客户端已断开，直接返回
-    if (clientDisconnected) {
+    if (checkClientDisconnected()) {
       return;
     }
 
     // 所有key都尝试过了，仍然失败
     if (!requestSuccess) {
-      return res.status(503).json({
-        error: {
-          message: '所有API密钥都不可用，请稍后重试',
-          type: 'service_unavailable',
-          reason: lastError ? getErrorMessage(lastError) : '未知错误'
-        }
-      });
+      if (!checkClientDisconnected()) {
+        removeDisconnectListeners(); // 请求已处理完成（虽然是错误），移除断开检测
+        return res.status(503).json({
+          error: {
+            message: '所有API密钥都不可用，请稍后重试',
+            type: 'service_unavailable',
+            reason: lastError ? getErrorMessage(lastError) : '未知错误'
+          }
+        });
+      }
+      return;
     }
 
   } catch (error) {
     console.error('代理错误:', error);
+    if (typeof removeDisconnectListeners === 'function') {
+      removeDisconnectListeners(); // 请求已处理完成（虽然是错误），移除断开检测
+    }
     return res.status(500).json({
       error: {
         message: '服务器内部错误',

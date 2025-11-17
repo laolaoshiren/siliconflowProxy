@@ -184,9 +184,10 @@ class Database {
 
   async getActiveApiKeys() {
     return new Promise((resolve, reject) => {
-      // 只返回可用状态的API keys（is_available = 1）
+      // 只返回可用状态的API keys（is_available = 1 或 null，且 status != 'error'）
+      // 兼容null值，因为旧数据可能is_available为null
       this.db.all(
-        'SELECT id, api_key, status, created_at, last_used_at FROM api_keys WHERE is_available = 1 ORDER BY created_at ASC',
+        'SELECT id, api_key, status, created_at, last_used_at FROM api_keys WHERE (is_available = 1 OR is_available IS NULL) AND (status IS NULL OR status != \'error\') ORDER BY created_at ASC',
         [],
         (err, rows) => {
           if (err) {

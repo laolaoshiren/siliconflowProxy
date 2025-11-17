@@ -118,31 +118,50 @@ router.get('/api-keys/:id/balance', adminAuth, async (req, res) => {
 
     const balanceInfo = await queryBalance(keyInfo.api_key);
     
+    // 检查是否是API密钥无效的情况
+    const isInvalidKey = balanceInfo.message && balanceInfo.message.includes('无效');
+    
     // 更新数据库中的余额信息
     if (balanceInfo.success && balanceInfo.balance !== null) {
-      await db.updateApiKeyBalance(id, balanceInfo.balance);
-      
-      // 如果余额<1，自动改为不可用状态
-      if (balanceInfo.balance < 1) {
+      // 如果是密钥无效，不更新余额为0，保持为null，只设置为不可用
+      if (isInvalidKey) {
+        // 密钥无效，不更新余额，保持为null，只设置为不可用（不改变status）
         await db.updateApiKeyAvailability(id, false);
+        // 更新last_error用于前端显示判断
+        await db.updateApiKeyStatus(id, keyInfo.status || 'active', balanceInfo.message);
         await refreshApiKeys();
       } else {
-        // 余额>=1，确保可用状态正确
-        const currentKey = await db.getApiKeyById(id);
-        if (currentKey && (currentKey.is_available === 0 || currentKey.is_available === null)) {
-          // 如果之前不可用，现在余额充足，恢复为可用
-          await db.updateApiKeyAvailability(id, true);
+        // 正常情况，更新余额
+        await db.updateApiKeyBalance(id, balanceInfo.balance);
+        
+        // 如果余额<1，自动改为不可用状态
+        if (balanceInfo.balance < 1) {
+          await db.updateApiKeyAvailability(id, false);
           await refreshApiKeys();
+        } else {
+          // 余额>=1，确保可用状态正确
+          const currentKey = await db.getApiKeyById(id);
+          if (currentKey && (currentKey.is_available === 0 || currentKey.is_available === null)) {
+            // 如果之前不可用，现在余额充足，恢复为可用
+            await db.updateApiKeyAvailability(id, true);
+            await refreshApiKeys();
+          }
         }
       }
     } else if (balanceInfo.success && balanceInfo.balance === null) {
       // 无法获取具体余额，但API key有效，保持当前状态
       // 不更新余额字段
     } else {
-      // 查询失败，如果返回了余额0，更新
-      if (balanceInfo.balance === 0) {
+      // 查询失败，如果返回了余额0且不是密钥无效，更新
+      if (balanceInfo.balance === 0 && !isInvalidKey) {
         await db.updateApiKeyBalance(id, 0);
         await db.updateApiKeyAvailability(id, false);
+        await refreshApiKeys();
+      } else if (isInvalidKey) {
+        // 密钥无效，不更新余额，只设置为不可用（不改变status）
+        await db.updateApiKeyAvailability(id, false);
+        // 更新last_error用于前端显示判断
+        await db.updateApiKeyStatus(id, keyInfo.status || 'active', balanceInfo.message);
         await refreshApiKeys();
       }
     }
@@ -218,16 +237,25 @@ router.put('/api-keys/:id/toggle-availability', adminAuth, async (req, res) => {
       return res.status(404).json({ success: false, message: 'API key不存在' });
     }
 
+    // 如果状态是error（异常），直接设置为可用状态，并清除error状态
+    if (keyInfo.status === 'error') {
+      await db.updateApiKeyAvailability(id, true);
+      await db.updateApiKeyStatus(id, 'active', null);
+      await refreshApiKeys();
+      
+      return res.json({ 
+        success: true, 
+        message: '异常状态已恢复为可用',
+        is_available: true,
+        status: 'active'
+      });
+    }
+
+    // 正常状态下的切换逻辑
     const currentAvailability = keyInfo.is_available === 1 || keyInfo.is_available === null;
     const newAvailability = !currentAvailability;
     
     await db.updateApiKeyAvailability(id, newAvailability);
-    
-    // 如果用户将key设置为可用，且之前状态是error，清除error状态（恢复为active）
-    if (newAvailability && keyInfo.status === 'error') {
-      await db.updateApiKeyStatus(id, 'active', null);
-    }
-    
     await refreshApiKeys();
     
     res.json({ 
