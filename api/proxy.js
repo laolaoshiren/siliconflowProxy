@@ -219,30 +219,16 @@ router.post('/chat/completions', apiAuth, async (req, res) => {
           // 成功：更新API key状态，增加调用次数
           keySuccess = true;
           requestSuccess = true;
+          await markApiKeyStatus(apiKeyId, 'active');
           await db.incrementCallCount(apiKeyId);
           await db.recordUsage(apiKeyId, true);
 
-          // 检查余额，根据余额决定状态
+          // 如果之前这个key被标记为错误，现在成功了，恢复为正常
           const currentKeyInfo = await db.getApiKeyById(apiKeyId);
-          if (currentKeyInfo) {
-            const balance = currentKeyInfo.balance !== null ? parseFloat(currentKeyInfo.balance) : null;
-            
-            // 如果余额<1，标记为不可用
-            if (balance !== null && balance < 1) {
-              await markApiKeyStatus(apiKeyId, 'insufficient', '余额不足');
-              await db.updateApiKeyAvailability(apiKeyId, false);
-              await require('../utils/apiManager').refreshApiKeys();
-              console.log(`API Key ${apiKeyId} (${apiKeyName}) 余额不足 (¥${balance.toFixed(2)})，已标记为不可用`);
-            } else {
-              // 余额>=1或余额未知，标记为可用
-              await markApiKeyStatus(apiKeyId, 'active');
-              // 如果之前这个key被标记为错误，现在成功了，恢复为正常
-              if (currentKeyInfo.status === 'error') {
-                await db.updateApiKeyAvailability(apiKeyId, true);
-                await require('../utils/apiManager').refreshApiKeys();
-                console.log(`API Key ${apiKeyId} (${apiKeyName}) 已恢复为正常状态`);
-              }
-            }
+          if (currentKeyInfo && currentKeyInfo.status === 'error') {
+            await db.updateApiKeyAvailability(apiKeyId, true);
+            await require('../utils/apiManager').refreshApiKeys();
+            console.log(`API Key ${apiKeyId} (${apiKeyName}) 已恢复为正常状态`);
           }
 
           // 检查是否需要自动查询余额
@@ -657,25 +643,34 @@ async function handleAutoQueryBalance(apiKeyId, autoQueryThreshold) {
     if (keyInfo && keyInfo.call_count > 0) {
       const shouldQuery = keyInfo.call_count % autoQueryThreshold === 0;
       if (shouldQuery) {
-        console.log(`API Key ${apiKeyId} 调用次数达到 ${keyInfo.call_count}，触发自动查询余额（阈值: ${autoQueryThreshold}）`);
+        // 生成API密钥显示名称（前8位...后4位）
+        const apiKeyName = `${keyInfo.api_key.substring(0, 8)}...${keyInfo.api_key.substring(keyInfo.api_key.length - 4)}`;
+        console.log(`API Key ${apiKeyId} (${apiKeyName}) 调用次数达到 ${keyInfo.call_count}，触发自动查询余额（阈值: ${autoQueryThreshold}）`);
         queryBalance(keyInfo.api_key).then(async (balanceInfo) => {
           if (balanceInfo.success && balanceInfo.balance !== null) {
             await db.updateApiKeyBalance(apiKeyId, balanceInfo.balance);
             
+            // 根据余额判断状态
             if (balanceInfo.balance < 1) {
+              // 余额<1，标记为不可用
+              await markApiKeyStatus(apiKeyId, 'insufficient', '余额不足');
               await db.updateApiKeyAvailability(apiKeyId, false);
               await require('../utils/apiManager').refreshApiKeys();
+              console.log(`API Key ${apiKeyId} (${apiKeyName}) 余额不足 (¥${balanceInfo.balance.toFixed(2)})，已标记为不可用`);
             } else {
+              // 余额>=1，确保可用状态正确
+              await markApiKeyStatus(apiKeyId, 'active');
               const currentKey = await db.getApiKeyById(apiKeyId);
               if (currentKey && (currentKey.is_available === 0 || currentKey.is_available === null)) {
                 await db.updateApiKeyAvailability(apiKeyId, true);
                 await require('../utils/apiManager').refreshApiKeys();
               }
             }
-            console.log(`API Key ${apiKeyId} 自动查询余额完成: ¥${balanceInfo.balance.toFixed(2)} (调用次数: ${keyInfo.call_count})`);
+            console.log(`API Key ${apiKeyId} (${apiKeyName}) 自动查询余额完成: ¥${balanceInfo.balance.toFixed(2)} (调用次数: ${keyInfo.call_count})`);
           }
         }).catch(err => {
-          console.error(`API Key ${apiKeyId} 自动查询余额失败:`, err.message);
+          const apiKeyName = `${keyInfo.api_key.substring(0, 8)}...${keyInfo.api_key.substring(keyInfo.api_key.length - 4)}`;
+          console.error(`API Key ${apiKeyId} (${apiKeyName}) 自动查询余额失败:`, err.message);
         });
       }
     }
