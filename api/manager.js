@@ -222,6 +222,12 @@ router.put('/api-keys/:id/toggle-availability', adminAuth, async (req, res) => {
     const newAvailability = !currentAvailability;
     
     await db.updateApiKeyAvailability(id, newAvailability);
+    
+    // 如果用户将key设置为可用，且之前状态是error，清除error状态（恢复为active）
+    if (newAvailability && keyInfo.status === 'error') {
+      await db.updateApiKeyStatus(id, 'active', null);
+    }
+    
     await refreshApiKeys();
     
     res.json({ 
@@ -250,6 +256,50 @@ router.get('/api-keys/export', adminAuth, async (req, res) => {
   } catch (error) {
     console.error('导出API keys失败:', error);
     res.status(500).json({ success: false, message: '导出失败' });
+  }
+});
+
+// 获取API key的错误日志
+router.get('/api-keys/:id/logs', adminAuth, async (req, res) => {
+  try {
+    const id = parseInt(req.params.id);
+    if (isNaN(id)) {
+      return res.status(400).json({ success: false, message: '无效的ID' });
+    }
+
+    const keyInfo = await db.getApiKeyById(id);
+    if (!keyInfo) {
+      return res.status(404).json({ success: false, message: 'API key不存在' });
+    }
+
+    const limit = parseInt(req.query.limit) || 50;
+    const logs = await db.getApiKeyErrorLogs(id, limit);
+    
+    res.json({ 
+      success: true, 
+      data: logs 
+    });
+  } catch (error) {
+    console.error('获取错误日志失败:', error);
+    res.status(500).json({ success: false, message: '获取错误日志失败' });
+  }
+});
+
+// 获取当前正在使用的API key ID
+router.get('/current-api-key', adminAuth, async (req, res) => {
+  try {
+    const { getCurrentApiKeyId } = require('../utils/apiManager');
+    const currentKeyId = getCurrentApiKeyId();
+    
+    res.json({ 
+      success: true, 
+      data: {
+        current_api_key_id: currentKeyId
+      }
+    });
+  } catch (error) {
+    console.error('获取当前API key失败:', error);
+    res.status(500).json({ success: false, message: '获取当前API key失败' });
   }
 });
 

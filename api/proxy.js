@@ -8,7 +8,9 @@ const {
   markApiKeyStatus, 
   checkAndUpdateAvailability,
   isBusyError,
-  getErrorMessage
+  getErrorMessage,
+  getCurrentApiKeyId,
+  setCurrentApiKeyId
 } = require('../utils/apiManager');
 
 const router = express.Router();
@@ -64,19 +66,31 @@ router.post('/chat/completions', async (req, res) => {
 
     let apiKey = keyInfo.api_key;
     let apiKeyId = keyInfo.id;
+    let apiKeyName = `${apiKey.substring(0, 8)}...${apiKey.substring(apiKey.length - 4)}`; // 用于日志显示
+    
+    // 更新当前使用的API密钥ID（用于前端显示）
+    setCurrentApiKeyId(apiKeyId);
+    
     let maxKeyAttempts = 10; // 最多尝试10个不同的API key
     let keyAttempts = 0;
     let lastErrorKeyId = null; // 记录最后出错的key ID
 
     let requestSuccess = false; // 标记整个请求是否成功
     let lastError = null; // 记录最后一个错误
+    let clientDisconnected = false; // 标记客户端是否断开连接
 
-    while (keyAttempts < maxKeyAttempts && !requestSuccess) {
+    // 监听客户端断开连接
+    req.on('close', () => {
+      clientDisconnected = true;
+      console.log(`客户端连接已断开，停止处理请求 (API Key ${apiKeyId} ${apiKeyName})`);
+    });
+
+    while (keyAttempts < maxKeyAttempts && !requestSuccess && !clientDisconnected) {
       // 对当前API key进行重试
       let retryCount = 0;
       let keySuccess = false; // 当前key是否成功
 
-      while (retryCount <= MAX_RETRIES && !keySuccess) {
+      while (retryCount <= MAX_RETRIES && !keySuccess && !clientDisconnected) {
         try {
           // 检查是否是流式请求
           const isStreaming = req.body && req.body.stream === true;
@@ -110,7 +124,7 @@ router.post('/chat/completions', async (req, res) => {
             await markApiKeyStatus(apiKeyId, 'active');
             await db.updateApiKeyAvailability(apiKeyId, true);
             await require('../utils/apiManager').refreshApiKeys();
-            console.log(`API Key ${apiKeyId} 已恢复为正常状态`);
+            console.log(`API Key ${apiKeyId} (${apiKeyName}) 已恢复为正常状态`);
           }
 
           // 检查是否需要自动查询余额
@@ -145,8 +159,8 @@ router.post('/chat/completions', async (req, res) => {
             });
 
             response.data.on('error', (err) => {
-              console.error(`流式响应错误 (API Key ${apiKeyId}):`, err.message);
-              if (!res.headersSent) {
+              console.error(`流式响应错误 (API Key ${apiKeyId} ${apiKeyName}):`, err.message);
+              if (!res.headersSent && !clientDisconnected) {
                 res.status(500).json({
                   error: {
                     message: '流式响应错误',
@@ -160,6 +174,7 @@ router.post('/chat/completions', async (req, res) => {
             });
 
             req.on('close', () => {
+              clientDisconnected = true;
               if (response.data && typeof response.data.destroy === 'function') {
                 response.data.destroy();
               }
@@ -176,36 +191,52 @@ router.post('/chat/completions', async (req, res) => {
           return res.json(response.data);
 
         } catch (error) {
+          // 如果客户端已断开，停止处理
+          if (clientDisconnected) {
+            console.log(`客户端已断开，停止重试 (API Key ${apiKeyId} ${apiKeyName})`);
+            return;
+          }
+
           lastError = error;
-          console.error(`API Key ${apiKeyId} 请求失败 (重试 ${retryCount}/${MAX_RETRIES}):`, error.message);
+          console.error(`API Key ${apiKeyId} (${apiKeyName}) 请求失败 (重试 ${retryCount}/${MAX_RETRIES}):`, error.message);
 
           // 检查是否是busy错误（IP被拉黑）
           if (isBusyError(error)) {
-            console.error('检测到busy错误，IP可能被硅基流动拉黑');
+            console.error(`检测到busy错误，IP可能被硅基流动拉黑 (API Key ${apiKeyId} ${apiKeyName})`);
             await db.blockIp('检测到busy错误响应');
             
             const unblockTime = new Date(Date.now() + 30 * 60 * 1000);
             const remainingMinutes = 30;
             
-            return res.status(503).json({
-              error: {
-                message: `服务器IP已被硅基流动拉黑，请等待 ${remainingMinutes} 分钟后重试`,
-                type: 'ip_blocked',
-                reason: '上游API返回busy错误，IP被拉黑',
-                unblock_at: unblockTime.toISOString(),
-                remaining_minutes: remainingMinutes
-              }
-            });
+            if (!clientDisconnected) {
+              return res.status(503).json({
+                error: {
+                  message: `服务器IP已被硅基流动拉黑，请等待 ${remainingMinutes} 分钟后重试`,
+                  type: 'ip_blocked',
+                  reason: '上游API返回busy错误，IP被拉黑',
+                  unblock_at: unblockTime.toISOString(),
+                  remaining_minutes: remainingMinutes
+                }
+              });
+            }
+            return;
           }
 
-          // 记录错误
-          await db.recordUsage(apiKeyId, false, getErrorMessage(error));
-          await markApiKeyStatus(apiKeyId, 'error', getErrorMessage(error));
+          // 记录错误（包含更详细的错误信息）
+          const errorMessage = getErrorMessage(error);
+          const detailedError = error.response ? JSON.stringify({
+            status: error.response.status,
+            statusText: error.response.statusText,
+            data: error.response.data
+          }) : errorMessage;
+          
+          await db.recordUsage(apiKeyId, false, detailedError);
+          await markApiKeyStatus(apiKeyId, 'error', errorMessage);
 
           // 如果不是最后一次重试，等待后继续
-          if (retryCount < MAX_RETRIES) {
+          if (retryCount < MAX_RETRIES && !clientDisconnected) {
             // 在重试前查询余额，判断是否因为欠费导致
-            console.log(`API Key ${apiKeyId} 重试前查询余额...`);
+            console.log(`API Key ${apiKeyId} (${apiKeyName}) 重试前查询余额...`);
             const balanceInfo = await queryBalance(apiKey);
             
             if (balanceInfo.success && balanceInfo.balance !== null) {
@@ -213,7 +244,7 @@ router.post('/chat/completions', async (req, res) => {
               
               // 如果余额<1，标记为欠费并切换到下一个key
               if (balanceInfo.balance < 1) {
-                console.log(`API Key ${apiKeyId} 余额不足 (¥${balanceInfo.balance.toFixed(2)})，切换到下一个key`);
+                console.log(`API Key ${apiKeyId} (${apiKeyName}) 余额不足 (¥${balanceInfo.balance.toFixed(2)})，切换到下一个key`);
                 await markApiKeyStatus(apiKeyId, 'insufficient', '余额不足');
                 await db.updateApiKeyAvailability(apiKeyId, false);
                 await checkAndUpdateAvailability(apiKeyId);
@@ -222,13 +253,28 @@ router.post('/chat/completions', async (req, res) => {
               }
             }
 
-            // 等待30秒后重试
-            console.log(`等待 ${RETRY_DELAY / 1000} 秒后重试 API Key ${apiKeyId}...`);
-            await new Promise(resolve => setTimeout(resolve, RETRY_DELAY));
+            // 等待30秒后重试（检查客户端是否断开）
+            if (!clientDisconnected) {
+              console.log(`等待 ${RETRY_DELAY / 1000} 秒后重试 API Key ${apiKeyId} (${apiKeyName})...`);
+              // 分段等待，每5秒检查一次客户端连接状态
+              // 在等待期间，保持当前API密钥ID的更新（用于前端显示）
+              setCurrentApiKeyId(apiKeyId);
+              for (let i = 0; i < RETRY_DELAY / 5000 && !clientDisconnected; i++) {
+                await new Promise(resolve => setTimeout(resolve, 5000));
+                // 每次检查时也更新状态
+                setCurrentApiKeyId(apiKeyId);
+              }
+              if (clientDisconnected) {
+                console.log(`客户端已断开，停止重试 (API Key ${apiKeyId} ${apiKeyName})`);
+                return;
+              }
+            } else {
+              return;
+            }
             retryCount++;
           } else {
             // 重试次数用尽，标记为异常状态
-            console.log(`API Key ${apiKeyId} 重试 ${MAX_RETRIES} 次后仍然失败，标记为异常状态`);
+            console.log(`API Key ${apiKeyId} (${apiKeyName}) 重试 ${MAX_RETRIES} 次后仍然失败，标记为异常状态`);
             await markApiKeyStatus(apiKeyId, 'error', getErrorMessage(error));
             await checkAndUpdateAvailability(apiKeyId);
             lastErrorKeyId = apiKeyId;
@@ -248,13 +294,15 @@ router.post('/chat/completions', async (req, res) => {
             
             // 如果余额>=1，尝试恢复
             if (balanceInfo.balance >= 1) {
-              console.log(`尝试恢复之前出错的 API Key ${lastErrorKeyId} (余额: ¥${balanceInfo.balance.toFixed(2)})`);
+              const errorKeyName = `${errorKeyInfo.api_key.substring(0, 8)}...${errorKeyInfo.api_key.substring(errorKeyInfo.api_key.length - 4)}`;
+              console.log(`尝试恢复之前出错的 API Key ${lastErrorKeyId} (${errorKeyName}) (余额: ¥${balanceInfo.balance.toFixed(2)})`);
               await markApiKeyStatus(lastErrorKeyId, 'active');
               await db.updateApiKeyAvailability(lastErrorKeyId, true);
               await require('../utils/apiManager').refreshApiKeys();
             } else {
               // 余额仍然<1，标记为错误状态（避免下次重复尝试）
-              console.log(`API Key ${lastErrorKeyId} 余额仍然不足，标记为错误状态`);
+              const errorKeyName = `${errorKeyInfo.api_key.substring(0, 8)}...${errorKeyInfo.api_key.substring(errorKeyInfo.api_key.length - 4)}`;
+              console.log(`API Key ${lastErrorKeyId} (${errorKeyName}) 余额仍然不足，标记为错误状态`);
               await markApiKeyStatus(lastErrorKeyId, 'error', '余额不足');
               await db.updateApiKeyAvailability(lastErrorKeyId, false);
             }
@@ -263,22 +311,33 @@ router.post('/chat/completions', async (req, res) => {
       }
 
       // 如果当前key失败了，切换到下一个
-      if (!keySuccess) {
+      if (!keySuccess && !clientDisconnected) {
         keyInfo = await switchToNextApiKey();
         if (!keyInfo) {
-          return res.status(503).json({
-            error: {
-              message: '所有API密钥都不可用',
-              type: 'service_unavailable',
-              reason: '所有API密钥都已尝试，但都失败了'
-            }
-          });
+          if (!clientDisconnected) {
+            return res.status(503).json({
+              error: {
+                message: '所有API密钥都不可用',
+                type: 'service_unavailable',
+                reason: '所有API密钥都已尝试，但都失败了'
+              }
+            });
+          }
+          return;
         }
         apiKey = keyInfo.api_key;
         apiKeyId = keyInfo.id;
+        apiKeyName = `${apiKey.substring(0, 8)}...${apiKey.substring(apiKey.length - 4)}`;
+        // 更新当前使用的API密钥ID（用于前端显示）
+        setCurrentApiKeyId(apiKeyId);
         keyAttempts++;
       }
       // 如果成功，requestSuccess已经是true，循环会自动退出
+    }
+
+    // 如果客户端已断开，直接返回
+    if (clientDisconnected) {
+      return;
     }
 
     // 所有key都尝试过了，仍然失败

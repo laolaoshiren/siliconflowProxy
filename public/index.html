@@ -181,6 +181,15 @@
             background: #f8f9fa;
         }
 
+        tr.using-key {
+            background: #e8f5e9 !important;
+            border-left: 3px solid #27ae60;
+        }
+
+        tr.using-key:hover {
+            background: #d4edda !important;
+        }
+
         .status-badge {
             display: inline-block;
             padding: 4px 12px;
@@ -202,6 +211,15 @@
         .status-error {
             background: #fff3cd;
             color: #856404;
+        }
+
+        .btn-warning {
+            background: #f39c12;
+            color: white;
+        }
+
+        .btn-warning:hover {
+            background: #e67e22;
         }
 
         .actions {
@@ -271,6 +289,71 @@
             width: 90%;
         }
 
+        .log-modal {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.5);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 1001;
+        }
+
+        .log-box {
+            background: white;
+            padding: 30px;
+            border-radius: 12px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.2);
+            width: 90%;
+            max-width: 900px;
+            max-height: 80vh;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .log-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+            padding-bottom: 15px;
+            border-bottom: 2px solid #eee;
+        }
+
+        .log-content {
+            flex: 1;
+            overflow-y: auto;
+            font-family: 'Courier New', monospace;
+            font-size: 13px;
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 6px;
+            max-height: 60vh;
+        }
+
+        .log-item {
+            margin-bottom: 15px;
+            padding: 10px;
+            background: white;
+            border-radius: 4px;
+            border-left: 3px solid #e74c3c;
+        }
+
+        .log-time {
+            color: #666;
+            font-size: 12px;
+            margin-bottom: 5px;
+        }
+
+        .log-error {
+            color: #e74c3c;
+            word-break: break-all;
+            white-space: pre-wrap;
+        }
+
         .password-box h2 {
             margin-bottom: 20px;
             color: #333;
@@ -305,6 +388,19 @@
                 <button type="submit" class="btn btn-primary" style="width: 100%;">验证</button>
             </form>
             <div id="passwordAlert" class="alert" style="margin-top: 15px;"></div>
+        </div>
+    </div>
+
+    <!-- 错误日志查看界面 -->
+    <div id="logModal" class="log-modal" style="display: none;">
+        <div class="log-box">
+            <div class="log-header">
+                <h2>📋 错误日志</h2>
+                <button class="btn btn-danger" onclick="closeLogModal()" style="padding: 8px 16px;">关闭</button>
+            </div>
+            <div id="logContent" class="log-content">
+                <div style="text-align: center; color: #999; padding: 20px;">加载中...</div>
+            </div>
         </div>
     </div>
 
@@ -344,6 +440,7 @@
                             总余额: <span id="totalBalance" style="color: #27ae60; font-weight: 600;">¥0.00</span>
                         </div>
                         <button class="btn btn-primary" onclick="exportAllKeys()">导出全部</button>
+                        <button class="btn btn-info" onclick="queryAllBalances()" id="queryAllBtn">一键查询所有余额</button>
                     </div>
                 </div>
                 <div id="loading" class="loading">加载中...</div>
@@ -607,6 +704,48 @@
 
         // 存储完整的API keys（用于复制）
         let fullApiKeysMap = {};
+        // 当前正在使用的API key ID
+        let currentUsingKeyId = null;
+
+        // 获取当前正在使用的API key ID
+        async function fetchCurrentApiKey() {
+            try {
+                const response = await fetch('/api/manage/current-api-key', {
+                    headers: getAuthHeaders()
+                });
+                
+                if (response.status === 401) {
+                    handleAuthError();
+                    return;
+                }
+                
+                const result = await response.json();
+                if (result.success) {
+                    currentUsingKeyId = result.data.current_api_key_id;
+                    // 更新表格显示
+                    updateTableHighlight();
+                }
+            } catch (error) {
+                // 静默失败，不影响其他功能
+                console.warn('获取当前API key失败:', error);
+            }
+        }
+
+        // 更新表格高亮显示
+        function updateTableHighlight() {
+            // 移除所有高亮
+            document.querySelectorAll('tr').forEach(row => {
+                row.classList.remove('using-key');
+            });
+            
+            // 高亮当前使用的API key
+            if (currentUsingKeyId) {
+                const row = document.querySelector(`tr[data-key-id="${currentUsingKeyId}"]`);
+                if (row) {
+                    row.classList.add('using-key');
+                }
+            }
+        }
 
         // 渲染表格
         function renderTable(keys) {
@@ -624,8 +763,15 @@
             tbody.innerHTML = keys.map((key, index) => {
                 // 可用状态显示
                 const isAvailable = key.is_available === true || key.is_available === 1 || key.is_available === null;
-                const availableText = isAvailable ? '可用' : '不可用';
-                const availableClass = isAvailable ? 'status-active' : 'status-insufficient';
+                const isError = key.status === 'error';
+                let availableText = isAvailable ? '可用' : '不可用';
+                let availableClass = isAvailable ? 'status-active' : 'status-insufficient';
+                
+                // 如果状态是error，显示异常状态（但用户仍然可以切换可用/不可用）
+                if (isError) {
+                    availableText = '异常';
+                    availableClass = 'status-error';
+                }
 
                 const createdDate = formatChinaTime(key.created_at);
                 const lastUsed = formatChinaTime(key.last_used_at);
@@ -641,10 +787,14 @@
                     totalBalance += balanceValue;
                 }
 
+                // 检查是否是当前正在使用的API key
+                const isCurrentUsing = currentUsingKeyId === key.id;
+                const usingIndicator = isCurrentUsing ? '<span style="color: #27ae60; font-weight: bold; margin-left: 5px;" title="正在使用">●</span>' : '';
+                
                 return `
-                    <tr>
+                    <tr data-key-id="${key.id}" class="${isCurrentUsing ? 'using-key' : ''}">
                         <td>${index + 1}</td>
-                        <td id="api-key-cell-${key.id}" style="cursor: pointer; user-select: none;" onclick="copyApiKey(${key.id})" title="点击复制完整密钥">${escapeHtml(key.api_key)}</td>
+                        <td id="api-key-cell-${key.id}" style="cursor: pointer; user-select: none;" onclick="copyApiKey(${key.id})" title="点击复制完整密钥">${escapeHtml(key.api_key)}${usingIndicator}</td>
                         <td>
                             <span class="status-badge ${availableClass}" style="cursor: pointer;" onclick="toggleAvailability(${key.id})" title="点击切换状态">${availableText}</span>
                         </td>
@@ -657,6 +807,7 @@
                         <td>${key.error_count || 0}</td>
                         <td class="actions">
                             <button class="btn btn-info btn-small" onclick="queryBalance(${key.id})" id="query-btn-${key.id}">查询余额</button>
+                            <button class="btn btn-warning btn-small" onclick="viewErrorLogs(${key.id})" title="查看错误日志">日志</button>
                             <button class="btn btn-danger btn-small" onclick="deleteKey(${key.id})">删除</button>
                         </td>
                     </tr>
@@ -665,6 +816,9 @@
             
             // 更新总余额显示
             document.getElementById('totalBalance').textContent = `¥${totalBalance.toFixed(2)}`;
+            
+            // 更新表格高亮
+            updateTableHighlight();
         }
 
         // 添加API key（支持批量）
@@ -870,6 +1024,8 @@
                 const result = await response.json();
                 if (result.success) {
                     showAlert(result.message);
+                    // 如果切换为可用，且之前是异常状态，需要清除异常状态
+                    // 注意：这里只是切换可用/不可用，异常状态由后台自动管理
                     loadApiKeys();
                 } else {
                     showAlert(result.message || '切换失败', 'error');
@@ -878,6 +1034,76 @@
                 showAlert('切换失败: ' + error.message, 'error');
             }
         }
+
+        // 查看错误日志
+        async function viewErrorLogs(id) {
+            try {
+                // 显示模态框
+                document.getElementById('logModal').style.display = 'flex';
+                document.getElementById('logContent').innerHTML = '<div style="text-align: center; color: #999; padding: 20px;">加载中...</div>';
+
+                const response = await fetch(`/api/manage/api-keys/${id}/logs`, {
+                    headers: getAuthHeaders()
+                });
+
+                if (response.status === 401) {
+                    handleAuthError();
+                    closeLogModal();
+                    return;
+                }
+
+                const result = await response.json();
+                
+                if (result.success) {
+                    const logs = result.data;
+                    
+                    if (logs.length === 0) {
+                        document.getElementById('logContent').innerHTML = '<div style="text-align: center; color: #999; padding: 20px;">暂无错误日志</div>';
+                    } else {
+                        const logsHtml = logs.map(log => {
+                            const time = formatChinaTime(log.timestamp);
+                            let errorText = log.error || '未知错误';
+                            
+                            // 尝试解析JSON格式的错误信息
+                            try {
+                                const errorObj = JSON.parse(errorText);
+                                if (errorObj.data) {
+                                    errorText = JSON.stringify(errorObj, null, 2);
+                                }
+                            } catch (e) {
+                                // 不是JSON，直接使用
+                            }
+                            
+                            return `
+                                <div class="log-item">
+                                    <div class="log-time">${time}</div>
+                                    <div class="log-error">${escapeHtml(errorText)}</div>
+                                </div>
+                            `;
+                        }).join('');
+                        
+                        document.getElementById('logContent').innerHTML = logsHtml;
+                    }
+                } else {
+                    document.getElementById('logContent').innerHTML = `<div style="text-align: center; color: #e74c3c; padding: 20px;">${result.message || '加载失败'}</div>`;
+                }
+            } catch (error) {
+                document.getElementById('logContent').innerHTML = `<div style="text-align: center; color: #e74c3c; padding: 20px;">加载失败: ${error.message}</div>`;
+            }
+        }
+
+        // 关闭日志模态框
+        function closeLogModal() {
+            document.getElementById('logModal').style.display = 'none';
+        }
+
+        // 点击模态框外部关闭
+        document.addEventListener('click', (e) => {
+            const logModal = document.getElementById('logModal');
+            if (e.target === logModal) {
+                closeLogModal();
+            }
+        });
 
         // 导出所有API keys
         async function exportAllKeys() {
@@ -920,6 +1146,85 @@
             }
         }
 
+        // 一键查询所有余额
+        async function queryAllBalances() {
+            const btn = document.getElementById('queryAllBtn');
+            if (btn.disabled) return;
+            
+            try {
+                // 获取所有API keys
+                const response = await fetch('/api/manage/api-keys', {
+                    headers: getAuthHeaders()
+                });
+                
+                if (response.status === 401) {
+                    handleAuthError();
+                    return;
+                }
+                
+                const result = await response.json();
+                
+                if (!result.success || !result.data || result.data.length === 0) {
+                    showAlert('没有可查询的API密钥', 'error');
+                    return;
+                }
+                
+                const keys = result.data;
+                btn.disabled = true;
+                btn.textContent = `查询中 (0/${keys.length})...`;
+                
+                let successCount = 0;
+                let failCount = 0;
+                
+                // 依次查询每个API key的余额
+                for (let i = 0; i < keys.length; i++) {
+                    const key = keys[i];
+                    btn.textContent = `查询中 (${i + 1}/${keys.length})...`;
+                    
+                    try {
+                        const balanceResponse = await fetch(`/api/manage/api-keys/${key.id}/balance`, {
+                            headers: getAuthHeaders()
+                        });
+                        
+                        if (balanceResponse.status === 401) {
+                            handleAuthError();
+                            btn.disabled = false;
+                            btn.textContent = '一键查询所有余额';
+                            return;
+                        }
+                        
+                        const balanceResult = await balanceResponse.json();
+                        
+                        if (balanceResult.success) {
+                            successCount++;
+                        } else {
+                            failCount++;
+                        }
+                        
+                        // 每个查询之间稍微延迟，避免请求过快
+                        if (i < keys.length - 1) {
+                            await new Promise(resolve => setTimeout(resolve, 500));
+                        }
+                    } catch (error) {
+                        failCount++;
+                        console.error(`查询 API Key ${key.id} 余额失败:`, error);
+                    }
+                }
+                
+                btn.disabled = false;
+                btn.textContent = '一键查询所有余额';
+                
+                // 重新加载列表以显示最新余额
+                await loadApiKeys();
+                
+                showAlert(`查询完成！成功: ${successCount}，失败: ${failCount}`);
+            } catch (error) {
+                btn.disabled = false;
+                btn.textContent = '一键查询所有余额';
+                showAlert('批量查询失败: ' + error.message, 'error');
+            }
+        }
+
         // 获取并显示API地址
         function updateApiUrl() {
             const protocol = window.location.protocol;
@@ -959,10 +1264,66 @@
             }
         }
 
+        // 自动刷新数据（每10秒）
+        let autoRefreshInterval = null;
+        let currentKeyRefreshInterval = null;
+        
+        function startAutoRefresh() {
+            // 清除已有的定时器
+            if (autoRefreshInterval) {
+                clearInterval(autoRefreshInterval);
+            }
+            if (currentKeyRefreshInterval) {
+                clearInterval(currentKeyRefreshInterval);
+            }
+            
+            // 每10秒自动刷新一次数据
+            autoRefreshInterval = setInterval(() => {
+                // 只在页面可见时刷新（避免后台标签页浪费资源）
+                if (!document.hidden) {
+                    loadApiKeys();
+                }
+            }, 10000); // 10秒 = 10000毫秒
+            
+            // 每2秒刷新一次当前使用的API key（更频繁，以便实时显示）
+            currentKeyRefreshInterval = setInterval(() => {
+                // 只在页面可见时刷新
+                if (!document.hidden) {
+                    fetchCurrentApiKey();
+                }
+            }, 2000); // 2秒 = 2000毫秒
+        }
+        
+        function stopAutoRefresh() {
+            if (autoRefreshInterval) {
+                clearInterval(autoRefreshInterval);
+                autoRefreshInterval = null;
+            }
+            if (currentKeyRefreshInterval) {
+                clearInterval(currentKeyRefreshInterval);
+                currentKeyRefreshInterval = null;
+            }
+        }
+        
+        // 页面可见性变化时处理
+        document.addEventListener('visibilitychange', () => {
+            if (document.hidden) {
+                // 页面隐藏时停止自动刷新
+                stopAutoRefresh();
+            } else {
+                // 页面显示时恢复自动刷新
+                startAutoRefresh();
+            }
+        });
+
         // 页面加载时检查认证并加载列表
         checkAuth();
         // 更新API地址显示
         updateApiUrl();
+        // 启动自动刷新
+        startAutoRefresh();
+        // 立即获取一次当前使用的API key
+        fetchCurrentApiKey();
     </script>
 </body>
 </html>

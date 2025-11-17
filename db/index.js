@@ -329,6 +329,23 @@ class Database {
     });
   }
 
+  // 获取API key的错误日志
+  async getApiKeyErrorLogs(apiKeyId, limit = 50) {
+    return new Promise((resolve, reject) => {
+      this.db.all(
+        'SELECT id, timestamp, success, error FROM api_usage WHERE api_key_id = ? AND success = 0 ORDER BY timestamp DESC LIMIT ?',
+        [apiKeyId, limit],
+        (err, rows) => {
+          if (err) {
+            reject(err);
+          } else {
+            resolve(rows);
+          }
+        }
+      );
+    });
+  }
+
   close() {
     if (this.db) {
       this.db.close();

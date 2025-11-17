@@ -397,6 +397,16 @@ function getErrorMessage(error) {
   }
 }
 
+// 获取当前正在使用的API key ID
+function getCurrentApiKeyId() {
+  return currentApiKeyId;
+}
+
+// 设置当前正在使用的API key ID（供外部模块使用）
+function setCurrentApiKeyId(id) {
+  currentApiKeyId = id;
+}
+
 module.exports = {
   getCurrentApiKey,
   switchToNextApiKey,
@@ -407,6 +417,8 @@ module.exports = {
   refreshApiKeys,
   loadActiveApiKeys,
   isBusyError,
-  getErrorMessage
+  getErrorMessage,
+  getCurrentApiKeyId,
+  setCurrentApiKeyId
 };
 
