@@ -670,12 +670,18 @@
         
         .log-table th:nth-child(6),
         .log-table td:nth-child(6) {
-            width: 90px;
+            width: 80px;
             white-space: nowrap;
         }
         
         .log-table th:nth-child(7),
         .log-table td:nth-child(7) {
+            width: 90px;
+            white-space: nowrap;
+        }
+        
+        .log-table th:nth-child(8),
+        .log-table td:nth-child(8) {
             width: 350px;
             min-width: 300px;
             white-space: normal;
@@ -685,8 +691,8 @@
             padding-right: 12px;
         }
         
-        .log-table th:nth-child(8),
-        .log-table td:nth-child(8) {
+        .log-table th:nth-child(9),
+        .log-table td:nth-child(9) {
             width: 100px;
             white-space: nowrap;
         }
@@ -1204,6 +1210,7 @@
                                 <th>请求类型</th>
                                 <th>响应类型</th>
                                 <th>状态码</th>
+                                <th>是否使用代理</th>
                                 <th>耗时(ms)</th>
                                 <th>模型</th>
                                 <th>操作</th>
@@ -1211,7 +1218,7 @@
                         </thead>
                         <tbody id="logTableBody">
                             <tr>
-                                <td colspan="8" class="log-empty">暂无数据</td>
+                                <td colspan="9" class="log-empty">暂无数据</td>
                             </tr>
                         </tbody>
                     </table>
@@ -2546,7 +2553,7 @@
             if (!tbody) return;
             tbody.innerHTML = `
                 <tr>
-                    <td colspan="8" class="log-empty" style="${isError ? 'color:#e74c3c;' : ''}">${message}</td>
+                    <td colspan="9" class="log-empty" style="${isError ? 'color:#e74c3c;' : ''}">${message}</td>
                 </tr>
             `;
         }
@@ -2562,6 +2569,21 @@
 
             const rows = logModalState.records.map(log => {
                 const statusClass = log.success ? 'status-success' : 'status-fail';
+                // 判断是否使用代理
+                let hasProxy = false;
+                if (log.proxy_info) {
+                    if (typeof log.proxy_info === 'object') {
+                        hasProxy = Object.keys(log.proxy_info).length > 0 && log.proxy_info.type;
+                    } else if (typeof log.proxy_info === 'string') {
+                        try {
+                            const parsed = JSON.parse(log.proxy_info);
+                            hasProxy = parsed && typeof parsed === 'object' && Object.keys(parsed).length > 0 && parsed.type;
+                        } catch (e) {
+                            hasProxy = log.proxy_info.trim().length > 0;
+                        }
+                    }
+                }
+                const proxyCell = hasProxy ? `<span class="status-success">是</span>` : '';
                 return `
                     <tr>
                         <td>${formatChinaTime(log.timestamp)}</td>
@@ -2569,6 +2591,7 @@
                         <td>${log.request_type || '-'}</td>
                         <td><span class="response-pill">${log.response_type || '-'}</span></td>
                         <td>${log.status_code ?? '-'}</td>
+                        <td>${proxyCell}</td>
                         <td>${formatDurationValue(log.duration_ms)}</td>
                         <td>${log.model || '未知'}</td>
                         <td><button class="btn btn-info btn-small" style="padding: 6px 12px;" onclick="openLogDetail(${log.id})">详情</button></td>
