@@ -184,6 +184,59 @@ router.get('/api-keys/:id/balance', adminAuth, async (req, res) => {
   }
 });
 
+// 批量删除API key
+router.post('/api-keys/batch-delete', adminAuth, async (req, res) => {
+  try {
+    const { ids } = req.body;
+    
+    if (!ids || !Array.isArray(ids) || ids.length === 0) {
+      return res.status(400).json({ success: false, message: '请提供要删除的ID列表' });
+    }
+
+    let deletedCount = 0;
+    const errors = [];
+
+    for (const id of ids) {
+      const keyId = parseInt(id);
+      if (isNaN(keyId)) {
+        errors.push(`无效的ID: ${id}`);
+        continue;
+      }
+
+      try {
+        const result = await db.deleteApiKey(keyId);
+        if (result.deleted) {
+          deletedCount++;
+        } else {
+          errors.push(`ID ${keyId} 不存在`);
+        }
+      } catch (error) {
+        errors.push(`删除ID ${keyId} 失败: ${error.message}`);
+      }
+    }
+
+    await refreshApiKeys(); // 刷新活跃列表
+
+    if (deletedCount > 0) {
+      res.json({ 
+        success: true, 
+        message: `成功删除 ${deletedCount} 个API密钥${errors.length > 0 ? `，${errors.length} 个失败` : ''}`,
+        deleted: deletedCount,
+        errors: errors.length > 0 ? errors : undefined
+      });
+    } else {
+      res.status(400).json({ 
+        success: false, 
+        message: '没有成功删除任何API密钥',
+        errors: errors
+      });
+    }
+  } catch (error) {
+    console.error('批量删除API key失败:', error);
+    res.status(500).json({ success: false, message: '批量删除API key失败' });
+  }
+});
+
 // 删除API key
 router.delete('/api-keys/:id', adminAuth, async (req, res) => {
   try {

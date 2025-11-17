@@ -151,7 +151,7 @@ router.post('/chat/completions', apiAuth, async (req, res) => {
 
     req.on('aborted', () => {
       if (!clientDisconnected && !requestCompleted) {
-        clientDisconnected = true;
+      clientDisconnected = true;
         console.log(`客户端请求已中止，停止处理请求 (API Key ${apiKeyId} ${apiKeyName})`);
       }
     });
@@ -260,7 +260,7 @@ router.post('/chat/completions', apiAuth, async (req, res) => {
                 res.writeHead(200, streamHeaders);
               }
               try {
-                res.write(chunk);
+              res.write(chunk);
               } catch (e) {
                 // 如果写入失败（客户端已断开），停止流式传输
                 if (response.data && typeof response.data.destroy === 'function') {
@@ -271,9 +271,9 @@ router.post('/chat/completions', apiAuth, async (req, res) => {
 
             response.data.on('end', () => {
               if (!checkClientDisconnected()) {
-                res.end();
-                if (shouldAutoQuery) {
-                  handleAutoQueryBalance(apiKeyId, autoQueryThreshold);
+              res.end();
+              if (shouldAutoQuery) {
+                handleAutoQueryBalance(apiKeyId, autoQueryThreshold);
                 }
                 // 流式请求正常完成，移除断开检测监听器
                 removeDisconnectListeners();
@@ -284,19 +284,19 @@ router.post('/chat/completions', apiAuth, async (req, res) => {
               console.error(`流式响应错误 (API Key ${apiKeyId} ${apiKeyName}):`, err.message);
               if (!res.headersSent && !checkClientDisconnected()) {
                 try {
-                  res.status(500).json({
-                    error: {
-                      message: '流式响应错误',
-                      type: 'stream_error',
-                      reason: err.message
-                    }
-                  });
+                res.status(500).json({
+                  error: {
+                    message: '流式响应错误',
+                    type: 'stream_error',
+                    reason: err.message
+                  }
+                });
                 } catch (e) {
                   // 客户端已断开，忽略错误
                 }
               } else {
                 try {
-                  res.end();
+                res.end();
                 } catch (e) {
                   // 客户端已断开，忽略错误
                 }
@@ -455,8 +455,8 @@ router.post('/chat/completions', apiAuth, async (req, res) => {
             } catch (e) {
               // 如果序列化失败，只保存基本信息
               detailedError = JSON.stringify({
-                status: error.response.status,
-                statusText: error.response.statusText,
+            status: error.response.status,
+            statusText: error.response.statusText,
                 upstream_error: '[无法解析上游错误]'
               });
             }
@@ -464,8 +464,8 @@ router.post('/chat/completions', apiAuth, async (req, res) => {
           
           // 只有在客户端未断开时才记录错误
           if (!checkClientDisconnected()) {
-            await db.recordUsage(apiKeyId, false, detailedError);
-            await markApiKeyStatus(apiKeyId, 'error', errorMessage);
+          await db.recordUsage(apiKeyId, false, detailedError);
+          await markApiKeyStatus(apiKeyId, 'error', errorMessage);
           }
 
           // 如果不是最后一次重试，等待后继续
@@ -526,10 +526,10 @@ router.post('/chat/completions', apiAuth, async (req, res) => {
           } else {
             // 重试次数用尽，标记为异常状态
             if (!checkClientDisconnected()) {
-              console.log(`API Key ${apiKeyId} (${apiKeyName}) 重试 ${MAX_RETRIES} 次后仍然失败，标记为异常状态`);
-              await markApiKeyStatus(apiKeyId, 'error', getErrorMessage(error));
-              await checkAndUpdateAvailability(apiKeyId);
-              lastErrorKeyId = apiKeyId;
+            console.log(`API Key ${apiKeyId} (${apiKeyName}) 重试 ${MAX_RETRIES} 次后仍然失败，标记为异常状态`);
+            await markApiKeyStatus(apiKeyId, 'error', getErrorMessage(error));
+            await checkAndUpdateAvailability(apiKeyId);
+            lastErrorKeyId = apiKeyId;
             }
             break; // 跳出重试循环，切换到下一个key
           }
@@ -611,13 +611,13 @@ router.post('/chat/completions', apiAuth, async (req, res) => {
     if (!requestSuccess) {
       if (!checkClientDisconnected()) {
         removeDisconnectListeners(); // 请求已处理完成（虽然是错误），移除断开检测
-        return res.status(503).json({
-          error: {
-            message: '所有API密钥都不可用，请稍后重试',
-            type: 'service_unavailable',
-            reason: lastError ? getErrorMessage(lastError) : '未知错误'
-          }
-        });
+      return res.status(503).json({
+        error: {
+          message: '所有API密钥都不可用，请稍后重试',
+          type: 'service_unavailable',
+          reason: lastError ? getErrorMessage(lastError) : '未知错误'
+        }
+      });
       }
       return;
     }

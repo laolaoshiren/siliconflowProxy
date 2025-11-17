@@ -498,6 +498,21 @@
         .main-content.show {
             display: block;
         }
+
+        /* 增大复选框尺寸 */
+        .key-checkbox,
+        #selectAll {
+            width: 20px;
+            height: 20px;
+            cursor: pointer;
+            accent-color: #667eea;
+        }
+
+        .key-checkbox:hover,
+        #selectAll:hover {
+            transform: scale(1.1);
+            transition: transform 0.2s;
+        }
     </style>
 </head>
 <body>
@@ -563,23 +578,25 @@
                 <div id="alert" class="alert"></div>
 
             <div class="table-container">
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; flex-wrap: wrap; gap: 8px;">
-                    <div style="display: flex; align-items: center; gap: 12px; flex: 1; min-width: 300px;">
-                        <h2 style="margin: 0; color: #333; font-size: 18px;">API密钥列表</h2>
-                        <button class="btn btn-primary" onclick="showAddModal()" style="padding: 6px 14px; font-size: 13px;">+ 添加密钥</button>
-                        <div style="display: flex; align-items: center; gap: 6px; font-size: 12px; color: #555; background: #e8f4f8; padding: 4px 10px; border-radius: 4px; border-left: 3px solid #3498db;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; gap: 8px; flex-wrap: nowrap; overflow: hidden;">
+                    <div style="display: flex; align-items: center; gap: 12px; flex: 0 0 auto; min-width: 0; overflow: hidden;">
+                        <h2 style="margin: 0; color: #333; font-size: 18px; white-space: nowrap;">API密钥列表</h2>
+                        <button class="btn btn-primary" onclick="showAddModal()" style="padding: 6px 14px; font-size: 13px; white-space: nowrap; flex-shrink: 0;">+ 添加密钥</button>
+                        <div style="display: flex; align-items: center; gap: 6px; font-size: 12px; color: #555; background: #e8f4f8; padding: 4px 10px; border-radius: 4px; border-left: 3px solid #3498db; white-space: nowrap; flex-shrink: 0;">
                             <span style="font-weight: 500;">API地址：</span>
-                            <span id="apiUrlText" style="font-family: 'Courier New', monospace; color: #2c3e50; font-size: 11px;">加载中...</span>
-                            <button onclick="copyApiUrl()" class="btn btn-info btn-small" style="padding: 2px 6px; font-size: 10px; margin-left: 2px;">复制</button>
+                            <span id="apiUrlText" style="font-family: 'Courier New', monospace; color: #2c3e50; font-size: 11px; max-width: 200px; overflow: hidden; text-overflow: ellipsis; display: inline-block;">加载中...</span>
+                            <button onclick="copyApiUrl()" class="btn btn-info btn-small" style="padding: 2px 6px; font-size: 10px; white-space: nowrap;">复制</button>
                         </div>
                     </div>
-                    <div style="display: flex; align-items: center; gap: 12px;">
-                        <div style="font-size: 18px; font-weight: 600; display: flex; align-items: center; gap: 8px;">
+                    <div style="display: flex; align-items: center; gap: 8px; flex: 0 0 auto; flex-wrap: nowrap; overflow: hidden;">
+                        <div style="font-size: 18px; font-weight: 600; display: flex; align-items: center; gap: 8px; white-space: nowrap; flex-shrink: 0;">
                             <span style="color: #333;">总余额:</span>
                             <span id="totalBalance" style="color: #27ae60; font-weight: 700; font-size: 22px;">¥0.00</span>
                         </div>
-                        <button class="btn btn-primary" onclick="exportAllKeys()" style="padding: 6px 12px; font-size: 13px;">导出全部</button>
-                        <button class="btn btn-info" onclick="queryAllBalances()" id="queryAllBtn" style="padding: 6px 12px; font-size: 13px;">一键查询余额</button>
+                        <button class="btn btn-info" onclick="batchQueryBalances()" id="batchQueryBtn" style="padding: 6px 10px; font-size: 12px; display: none; white-space: nowrap; flex-shrink: 0;">查询 (<span id="selectedQueryCount">0</span>)</button>
+                        <button class="btn btn-danger" onclick="batchDeleteKeys()" id="batchDeleteBtn" style="padding: 6px 10px; font-size: 12px; display: none; white-space: nowrap; flex-shrink: 0;">删除 (<span id="selectedDeleteCount">0</span>)</button>
+                        <button class="btn btn-primary" onclick="exportAllKeys()" style="padding: 6px 10px; font-size: 12px; white-space: nowrap; flex-shrink: 0;">导出</button>
+                        <button class="btn btn-info" onclick="queryAllBalances()" id="queryAllBtn" style="padding: 6px 10px; font-size: 12px; white-space: nowrap; flex-shrink: 0;">查询全部</button>
                     </div>
                 </div>
                 <div id="loading" class="loading">加载中...</div>
@@ -587,6 +604,9 @@
                 <table id="keysTable" style="display: none;">
                     <thead>
                         <tr>
+                            <th style="width: 50px;">
+                                <input type="checkbox" id="selectAll" onchange="toggleSelectAll(this)" title="全选/取消全选">
+                            </th>
                             <th>序号</th>
                             <th>API Key</th>
                             <th>可用状态</th>
@@ -886,10 +906,38 @@
             }
         }
 
+        // 保存和恢复勾选状态
+        function saveCheckboxState() {
+            const checkboxes = document.querySelectorAll('.key-checkbox');
+            const checkedIds = new Set();
+            checkboxes.forEach(cb => {
+                if (cb.checked) {
+                    checkedIds.add(parseInt(cb.value));
+                }
+            });
+            return checkedIds;
+        }
+
+        function restoreCheckboxState(checkedIds) {
+            if (checkedIds && checkedIds.size > 0) {
+                const checkboxes = document.querySelectorAll('.key-checkbox');
+                checkboxes.forEach(cb => {
+                    const id = parseInt(cb.value);
+                    if (checkedIds.has(id)) {
+                        cb.checked = true;
+                    }
+                });
+                updateBatchDeleteButton();
+            }
+        }
+
         // 渲染表格
         function renderTable(keys) {
             const tbody = document.getElementById('keysTableBody');
             let totalBalance = 0;
+            
+            // 保存当前勾选状态
+            const checkedIds = saveCheckboxState();
             
             // 清空并重新构建完整key映射
             fullApiKeysMap = {};
@@ -940,6 +988,9 @@
                 
                 return `
                     <tr data-key-id="${key.id}" class="${isCurrentUsing ? 'using-key' : ''}">
+                        <td style="text-align: center;">
+                            <input type="checkbox" class="key-checkbox" value="${key.id}" onchange="updateBatchDeleteButton()">
+                        </td>
                         <td>${index + 1}</td>
                         <td id="api-key-cell-${key.id}" style="cursor: pointer; user-select: none;" onclick="copyApiKey(${key.id})" title="点击复制完整密钥">${escapeHtml(key.api_key)}${usingIndicator}</td>
                         <td>
@@ -963,6 +1014,9 @@
             
             // 更新总余额显示
             document.getElementById('totalBalance').textContent = `¥${totalBalance.toFixed(2)}`;
+            
+            // 恢复勾选状态
+            restoreCheckboxState(checkedIds);
             
             // 更新表格高亮
             updateTableHighlight();
@@ -1069,6 +1123,201 @@
                 showAlert('添加失败: ' + error.message, 'error');
             }
         });
+
+        // 全选/取消全选
+        function toggleSelectAll(checkbox) {
+            const checkboxes = document.querySelectorAll('.key-checkbox');
+            checkboxes.forEach(cb => {
+                cb.checked = checkbox.checked;
+            });
+            updateBatchDeleteButton();
+        }
+
+        // 更新批量操作按钮显示
+        function updateBatchDeleteButton() {
+            const checkboxes = document.querySelectorAll('.key-checkbox:checked');
+            const count = checkboxes.length;
+            const batchDeleteBtn = document.getElementById('batchDeleteBtn');
+            const batchQueryBtn = document.getElementById('batchQueryBtn');
+            const selectedQueryCount = document.getElementById('selectedQueryCount');
+            const selectedDeleteCount = document.getElementById('selectedDeleteCount');
+            
+            if (count > 0) {
+                batchDeleteBtn.style.display = 'inline-block';
+                batchQueryBtn.style.display = 'inline-block';
+                if (selectedQueryCount) selectedQueryCount.textContent = count;
+                if (selectedDeleteCount) selectedDeleteCount.textContent = count;
+            } else {
+                batchDeleteBtn.style.display = 'none';
+                batchQueryBtn.style.display = 'none';
+            }
+            
+            // 更新全选复选框状态
+            const allCheckboxes = document.querySelectorAll('.key-checkbox');
+            const selectAllCheckbox = document.getElementById('selectAll');
+            if (allCheckboxes.length > 0) {
+                selectAllCheckbox.checked = allCheckboxes.length === count && count > 0;
+            }
+        }
+
+        // 批量查询余额
+        async function batchQueryBalances() {
+            const checkboxes = document.querySelectorAll('.key-checkbox:checked');
+            const ids = Array.from(checkboxes).map(cb => parseInt(cb.value));
+            
+            if (ids.length === 0) {
+                showAlert('请先选择要查询余额的API密钥', 'error');
+                return;
+            }
+
+            const batchQueryBtn = document.getElementById('batchQueryBtn');
+            const originalText = batchQueryBtn.innerHTML;
+            batchQueryBtn.disabled = true;
+            batchQueryBtn.innerHTML = `查询中... (${ids.length})`;
+
+            let successCount = 0;
+            let failCount = 0;
+            const errors = [];
+
+            // 逐个查询余额
+            for (let i = 0; i < ids.length; i++) {
+                const id = ids[i];
+                const btn = document.getElementById(`query-btn-${id}`);
+                const balanceEl = document.getElementById(`balance-${id}`);
+                
+                if (btn && balanceEl) {
+                    try {
+                        // 更新按钮状态
+                        btn.disabled = true;
+                        btn.textContent = '查询中...';
+                        balanceEl.textContent = '查询中...';
+                        
+                        const response = await fetch(`/api/manage/api-keys/${id}/balance`, {
+                            headers: getAuthHeaders()
+                        });
+                        
+                        if (response.status === 401) {
+                            handleAuthError();
+                            batchQueryBtn.disabled = false;
+                            batchQueryBtn.innerHTML = originalText;
+                            return;
+                        }
+                        
+                        const result = await response.json();
+                        
+                        if (result.success) {
+                            successCount++;
+                            // 显示余额金额
+                            if (result.data.balance !== null && result.data.balance !== undefined) {
+                                const balance = parseFloat(result.data.balance);
+                                if (balance === 0 && result.data.message && result.data.message.includes('无效')) {
+                                    balanceEl.textContent = '密钥无效';
+                                    balanceEl.className = 'balance-text balance-unknown';
+                                    balanceEl.title = result.data.message;
+                                } else {
+                                    balanceEl.textContent = `¥${balance.toFixed(2)}`;
+                                    balanceEl.className = `balance-text ${
+                                        balance >= 0.5 ? 'balance-available' : 'balance-insufficient'
+                                    }`;
+                                    if (result.data.message) {
+                                        balanceEl.title = result.data.message;
+                                    }
+                                }
+                            } else {
+                                if (result.data.message && (result.data.message.includes('无效') || result.data.message.includes('失败'))) {
+                                    balanceEl.textContent = result.data.message.length > 10 ? result.data.message.substring(0, 10) + '...' : result.data.message;
+                                    balanceEl.className = 'balance-text balance-unknown';
+                                    balanceEl.title = result.data.message;
+                                } else {
+                                    balanceEl.textContent = '无法获取';
+                                    balanceEl.className = 'balance-text balance-unknown';
+                                    if (result.data.message) {
+                                        balanceEl.title = result.data.message;
+                                    }
+                                }
+                            }
+                        } else {
+                            failCount++;
+                            errors.push(`ID ${id}: ${result.message || '查询失败'}`);
+                            balanceEl.textContent = '查询失败';
+                            balanceEl.className = 'balance-text balance-unknown';
+                        }
+                        
+                        btn.disabled = false;
+                        btn.textContent = '查询余额';
+                        
+                        // 更新进度
+                        batchQueryBtn.innerHTML = `查询中... (${i + 1}/${ids.length})`;
+                    } catch (error) {
+                        failCount++;
+                        errors.push(`ID ${id}: ${error.message}`);
+                        if (btn) {
+                            btn.disabled = false;
+                            btn.textContent = '查询余额';
+                        }
+                        if (balanceEl) {
+                            balanceEl.textContent = '查询失败';
+                            balanceEl.className = 'balance-text balance-unknown';
+                        }
+                    }
+                }
+            }
+
+            // 恢复按钮状态
+            batchQueryBtn.disabled = false;
+            batchQueryBtn.innerHTML = originalText;
+
+            // 显示结果
+            if (successCount > 0) {
+                showAlert(`成功查询 ${successCount} 个余额${failCount > 0 ? `，${failCount} 个失败` : ''}`, failCount > 0 ? 'error' : 'success');
+            } else {
+                showAlert('所有查询都失败了', 'error');
+            }
+
+            // 刷新列表以更新总余额
+            loadApiKeys();
+        }
+
+        // 批量删除API key
+        async function batchDeleteKeys() {
+            const checkboxes = document.querySelectorAll('.key-checkbox:checked');
+            const ids = Array.from(checkboxes).map(cb => parseInt(cb.value));
+            
+            if (ids.length === 0) {
+                showAlert('请先选择要删除的API密钥', 'error');
+                return;
+            }
+
+            if (!confirm(`确定要删除选中的 ${ids.length} 个API密钥吗？此操作不可恢复！`)) {
+                return;
+            }
+
+            try {
+                const response = await fetch('/api/manage/api-keys/batch-delete', {
+                    method: 'POST',
+                    headers: getAuthHeaders(),
+                    body: JSON.stringify({ ids: ids })
+                });
+
+                if (response.status === 401) {
+                    handleAuthError();
+                    return;
+                }
+
+                const result = await response.json();
+                if (result.success) {
+                    showAlert(`成功删除 ${result.deleted || ids.length} 个API密钥${result.errors ? `，${result.errors.length} 个失败` : ''}`, 'success');
+                    // 清除所有复选框
+                    document.getElementById('selectAll').checked = false;
+                    updateBatchDeleteButton();
+                    loadApiKeys();
+                } else {
+                    showAlert(result.message || '批量删除失败', 'error');
+                }
+            } catch (error) {
+                showAlert('批量删除失败: ' + error.message, 'error');
+            }
+        }
 
         // 删除API key
         async function deleteKey(id) {
