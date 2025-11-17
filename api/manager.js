@@ -1,6 +1,8 @@
 const express = require('express');
+const axios = require('axios');
 const db = require('../db');
 const { refreshApiKeys, queryBalance, checkAndUpdateAvailability } = require('../utils/apiManager');
+const { createProxyAgent } = require('../utils/proxyManager');
 
 const router = express.Router();
 
@@ -638,57 +640,15 @@ router.post('/proxy/config', adminAuth, async (req, res) => {
     }
     
     const result = await db.addProxyConfig(type, host, parseInt(port), username || null, password || null);
-    
-    // 自动验证新添加的代理
-    try {
-      const axios = require('axios');
-      const { createProxyAgent } = require('../utils/proxyManager');
-      
-      const agent = createProxyAgent(result);
-      if (agent) {
-        const startTime = Date.now();
-        try {
-          const verifyResponse = await axios.get('http://cip.cc', {
-            httpsAgent: agent,
-            httpAgent: agent,
-            timeout: 10000,
-            headers: {
-              'User-Agent': 'curl/7.68.0'
-            }
-          });
-          
-          const endTime = Date.now();
-          const latency = endTime - startTime;
-          
-          // 解析响应内容
-          const responseText = verifyResponse.data;
-          const ipMatch = responseText.match(/IP\s*:\s*([^\n]+)/);
-          const addressMatch = responseText.match(/地址\s*:\s*([^\n]+)/);
-          const data2Match = responseText.match(/数据二\s*:\s*([^\n]+)/);
-          const data3Match = responseText.match(/数据三\s*:\s*([^\n]+)/);
-          
-          const ip = ipMatch ? ipMatch[1].trim() : null;
-          const address = addressMatch ? addressMatch[1].trim() : null;
-          
-          // 更新验证信息
-          await db.updateProxyVerifyInfo(result.id, true, ip, address, latency);
-          result.is_available = 1;
-          result.verify_ip = ip;
-          result.verify_address = address;
-          result.verify_latency = latency;
-        } catch (verifyError) {
-          const endTime = Date.now();
-          const latency = endTime - startTime;
-          await db.updateProxyVerifyInfo(result.id, false, null, null, latency);
-          result.is_available = 0;
-        }
-      }
-    } catch (autoVerifyError) {
-      // 自动验证失败不影响添加操作
-      console.error('自动验证代理失败:', autoVerifyError);
-    }
+    result.is_available = 0;
+    result.verify_ip = null;
+    result.verify_address = null;
+    result.verify_latency = null;
     
     res.json({ success: true, data: result });
+    
+    console.log(`[ProxyAdd] 已添加代理 ID:${result.id} ${type.toUpperCase()} ${host}:${port}，准备自动验证...`);
+    autoVerifyProxyConfig(result.id);
   } catch (error) {
     console.error('添加代理配置失败:', error);
     res.status(500).json({ success: false, message: '添加代理配置失败' });
@@ -743,93 +703,246 @@ router.delete('/proxy/config/:id', adminAuth, async (req, res) => {
 
 // 验证代理配置
 router.post('/proxy/config/:id/verify', adminAuth, async (req, res) => {
+  const id = parseInt(req.params.id);
+  if (isNaN(id)) {
+    return res.status(400).json({ success: false, message: '无效的ID' });
+  }
+
+  const logPrefix = `[ProxyManualVerify:${id}]`;
+
   try {
-    const id = parseInt(req.params.id);
-    if (isNaN(id)) {
-      return res.status(400).json({ success: false, message: '无效的ID' });
-    }
-
-    const proxy = await db.getAllProxyConfigs().then(configs => configs.find(c => c.id === id));
-    if (!proxy) {
-      return res.status(404).json({ success: false, message: '代理配置不存在' });
-    }
-
-    const axios = require('axios');
-    const { createProxyAgent } = require('../utils/proxyManager');
-    
-    const agent = createProxyAgent(proxy);
-    if (!agent) {
-      return res.status(400).json({ success: false, message: '无法创建代理agent' });
-    }
-
-    const startTime = Date.now();
-    try {
-      const response = await axios.get('http://cip.cc', {
-        httpsAgent: agent,
-        httpAgent: agent,
-        timeout: 10000,
-        headers: {
-          'User-Agent': 'curl/7.68.0'
-        }
-      });
-      
-      const endTime = Date.now();
-      const latency = endTime - startTime;
-      
-      // 解析响应内容
-      const responseText = response.data;
-      const ipMatch = responseText.match(/IP\s*:\s*([^\n]+)/);
-      const addressMatch = responseText.match(/地址\s*:\s*([^\n]+)/);
-      const data2Match = responseText.match(/数据二\s*:\s*([^\n]+)/);
-      const data3Match = responseText.match(/数据三\s*:\s*([^\n]+)/);
-      
-      const ip = ipMatch ? ipMatch[1].trim() : null;
-      const address = addressMatch ? addressMatch[1].trim() : null;
-      const data2 = data2Match ? data2Match[1].trim() : null;
-      const data3 = data3Match ? data3Match[1].trim() : null;
-      
-      // 更新代理验证信息到数据库
-      await db.updateProxyVerifyInfo(id, true, ip, address, latency);
-      
-      res.json({
-        success: true,
-        message: '代理验证成功',
-        data: {
-          latency: latency,
-          ip: ip,
-          address: address,
-          data2: data2,
-          data3: data3,
-          rawResponse: responseText,
-          is_available: true
-        }
-      });
-    } catch (error) {
-      const endTime = Date.now();
-      const latency = endTime - startTime;
-      
-      // 更新代理验证信息到数据库（标记为不可用）
-      await db.updateProxyVerifyInfo(id, false, null, null, latency);
-      
-      res.status(500).json({
-        success: false,
-        message: '代理验证失败',
-        data: {
-          latency: latency,
-          error: error.message,
-          errorDetails: error.response ? {
-            status: error.response.status,
-            statusText: error.response.statusText
-          } : null,
-          is_available: false
-        }
-      });
-    }
+    const data = await verifyProxyAndUpdate(id, logPrefix);
+    res.json({
+      success: true,
+      message: '代理验证成功',
+      data
+    });
   } catch (error) {
-    console.error('验证代理配置失败:', error);
-    res.status(500).json({ success: false, message: '验证代理配置失败: ' + error.message });
+    const statusCode = error.statusCode || 500;
+    const responseData = error.proxyVerify || null;
+    const message = error.statusCode === 404 ? '代理配置不存在' : (error.message || '代理验证失败');
+
+    res.status(statusCode).json({
+      success: false,
+      message,
+      data: responseData
+    });
   }
 });
+
+const fallbackIpProviders = [
+  { url: 'http://ifconfig.me/ip', name: 'ifconfig.me' },
+  { url: 'http://icanhazip.com', name: 'icanhazip.com' },
+  { url: 'http://ipinfo.io/ip', name: 'ipinfo.io' }
+];
+
+async function tryIpxProvider(agent, logPrefix = '[ProxyVerify]') {
+  const providerName = 'ipx.sh';
+  const start = Date.now();
+  const response = await axios.get('https://ipx.sh', {
+    httpsAgent: agent,
+    httpAgent: agent,
+    timeout: 8000,
+    headers: {
+      'User-Agent': 'curl/7.68.0',
+      'Accept': 'text/plain'
+    }
+  });
+
+  const text = typeof response.data === 'string'
+    ? response.data.trim()
+    : String(response.data || '').trim();
+
+  if (!text) {
+    throw new Error(`${providerName} 未返回数据`);
+  }
+
+  const lines = text.split(/\n+/).map(line => line.trim()).filter(Boolean);
+  if (lines.length === 0) {
+    throw new Error(`${providerName} 返回内容为空`);
+  }
+
+  const firstLine = lines[0];
+  const parts = firstLine.split(':');
+  if (parts.length === 0) {
+    throw new Error(`${providerName} 返回格式异常`);
+  }
+
+  const ip = parts.shift().trim();
+  if (!ip) {
+    throw new Error(`${providerName} 未返回IP`);
+  }
+
+  const address = parts.join(':').trim() || null;
+  const latency = Date.now() - start;
+
+  console.log(`${logPrefix} ${providerName} 验证成功 -> IP:${ip} 地址:${address || '未知'} 延迟:${latency}ms`);
+
+  return {
+    latency,
+    ip,
+    address,
+    data2: null,
+    data3: null,
+    rawResponse: text,
+    provider: providerName
+  };
+}
+
+async function verifyProxyAndUpdate(proxyId, logPrefix = '[ProxyVerify]') {
+  const proxy = await db.getProxyConfigById(proxyId);
+  if (!proxy) {
+    const error = new Error('代理配置不存在');
+    error.statusCode = 404;
+    throw error;
+  }
+
+  console.log(`${logPrefix} 开始验证代理 ID:${proxyId} ${proxy.type.toUpperCase()} ${proxy.host}:${proxy.port}`);
+
+  const agent = createProxyAgent(proxy);
+  if (!agent) {
+    const error = new Error('无法创建代理agent，请检查代理配置');
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const startTime = Date.now();
+  let ip = null;
+  let address = null;
+  let data2 = null;
+  let data3 = null;
+  let providerUsed = 'cip.cc';
+
+  try {
+    const response = await axios.get('http://cip.cc', {
+      httpsAgent: agent,
+      httpAgent: agent,
+      timeout: 8000,
+      headers: {
+        'User-Agent': 'curl/7.68.0'
+      }
+    });
+
+    const latency = Date.now() - startTime;
+    const responseText = typeof response.data === 'string' ? response.data : JSON.stringify(response.data);
+
+    const extract = (regex) => {
+      const match = responseText.match(regex);
+      return match ? match[1].trim() : null;
+    };
+
+    ip = extract(/IP\s*:\s*([^\n]+)/);
+    address = extract(/地址\s*:\s*([^\n]+)/);
+    data2 = extract(/数据二\s*:\s*([^\n]+)/);
+    data3 = extract(/数据三\s*:\s*([^\n]+)/);
+
+    if (!ip) {
+      throw new Error('cip.cc 未返回IP');
+    }
+
+    await db.updateProxyVerifyInfo(proxyId, true, ip, address, latency);
+
+    console.log(`${logPrefix} 验证成功 -> 源:cip.cc IP:${ip || '未知'} 地址:${address || '未知'} 延迟:${latency}ms`);
+
+    return {
+      latency,
+      ip,
+      address,
+      data2,
+      data3,
+      rawResponse: responseText,
+      is_available: true
+    };
+  } catch (error) {
+    console.warn(`${logPrefix} cip.cc 验证失败 (${error.message})，尝试备用线路...`);
+
+    // 尝试 ipx.sh（可提供中文位置）
+    try {
+      const ipxResult = await tryIpxProvider(agent, logPrefix);
+      await db.updateProxyVerifyInfo(proxyId, true, ipxResult.ip, ipxResult.address, ipxResult.latency);
+      return {
+        latency: ipxResult.latency,
+        ip: ipxResult.ip,
+        address: ipxResult.address,
+        data2: ipxResult.data2,
+        data3: ipxResult.data3,
+        rawResponse: ipxResult.rawResponse,
+        is_available: true,
+        provider: ipxResult.provider
+      };
+    } catch (ipxError) {
+      console.warn(`${logPrefix} ipx.sh 验证失败 (${ipxError.message})，继续尝试...`);
+    }
+
+    // Fall back to plain IP providers
+    for (const provider of fallbackIpProviders) {
+      try {
+        const fallbackStart = Date.now();
+        const response = await axios.get(provider.url, {
+          httpsAgent: agent,
+          httpAgent: agent,
+          timeout: 5000,
+          headers: {
+            'User-Agent': 'curl/7.68.0'
+          }
+        });
+        ip = typeof response.data === 'string' ? response.data.trim() : String(response.data).trim();
+        if (!ip) {
+          throw new Error(`${provider.name} 未返回IP`);
+        }
+
+        providerUsed = provider.name;
+        const latency = Date.now() - fallbackStart;
+        address = null;
+        data2 = null;
+        data3 = null;
+
+        await db.updateProxyVerifyInfo(proxyId, true, ip, address, latency);
+        console.log(`${logPrefix} 验证成功 -> 源:${providerUsed} IP:${ip} 延迟:${latency}ms`);
+
+        return {
+          latency,
+          ip,
+          address,
+          data2,
+          data3,
+          rawResponse: ip,
+          is_available: true,
+          provider: providerUsed
+        };
+      } catch (fallbackError) {
+        console.warn(`${logPrefix} ${provider.name} 验证失败 (${fallbackError.message})，继续尝试...`);
+      }
+    }
+
+    const latency = Date.now() - startTime;
+    await db.updateProxyVerifyInfo(proxyId, false, null, null, latency);
+
+    console.error(`${logPrefix} 所有线路验证失败 -> ${error.message}`);
+
+    const err = new Error(error.message || '代理验证失败');
+    err.proxyVerify = {
+      latency,
+      error: error.message,
+      errorDetails: error.response ? {
+        status: error.response.status,
+        statusText: error.response.statusText
+      } : null,
+      is_available: false
+    };
+    throw err;
+  }
+}
+
+async function autoVerifyProxyConfig(proxyId) {
+  const logPrefix = `[ProxyAutoVerify:${proxyId}]`;
+  try {
+    await verifyProxyAndUpdate(proxyId, logPrefix);
+  } catch (error) {
+    const details = error.proxyVerify ? `，延迟 ${error.proxyVerify.latency}ms` : '';
+    console.error(`${logPrefix} 自动验证失败 -> ${error.message || '未知错误'}${details}`);
+  }
+}
 
 module.exports = router;
 

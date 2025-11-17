@@ -426,6 +426,22 @@ class Database {
     });
   }
 
+  async getProxyConfigById(id) {
+    return new Promise((resolve, reject) => {
+      this.db.get(
+        'SELECT id, enabled, type, host, port, username, password, order_index, created_at, is_available, verify_ip, verify_address, verify_latency, verified_at FROM proxy_config WHERE id = ?',
+        [id],
+        (err, row) => {
+          if (err) {
+            reject(err);
+          } else {
+            resolve(row || null);
+          }
+        }
+      );
+    });
+  }
+
   async addProxyConfig(type, host, port, username, password) {
     return new Promise((resolve, reject) => {
       // 获取当前最大order_index
