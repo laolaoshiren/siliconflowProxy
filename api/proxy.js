@@ -126,6 +126,7 @@ router.post('/chat/completions', apiAuth, async (req, res) => {
     let lastError = null; // 记录最后一个错误
     let clientDisconnected = false; // 标记客户端是否断开连接
     let requestCompleted = false; // 标记请求是否正常完成（成功或失败但已处理）
+    const isStreamingRequest = req.body && req.body.stream === true;
 
     // 检查客户端是否已断开的辅助函数（只检查，不设置标志）
     const checkClientDisconnected = () => {
@@ -199,7 +200,7 @@ router.post('/chat/completions', apiAuth, async (req, res) => {
           }
 
           // 检查是否是流式请求
-          const isStreaming = req.body && req.body.stream === true;
+          const isStreaming = isStreamingRequest;
 
           // 检查是否有激活的代理
           const activeProxy = await getActiveProxy();
@@ -364,7 +365,7 @@ router.post('/chat/completions', apiAuth, async (req, res) => {
                   'Content-Type': 'application/json'
                 },
                 timeout: 120000,
-                responseType: isStreaming ? 'stream' : 'json'
+                responseType: isStreamingRequest ? 'stream' : 'json'
               },
               `${SILICONFLOW_BASE_URL}/chat/completions`,
               req.body
