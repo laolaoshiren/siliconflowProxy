@@ -25,9 +25,11 @@ const router = express.Router();
 // 硅基流动API基础URL
 const SILICONFLOW_BASE_URL = 'https://api.siliconflow.cn/v1';
 
-// 重试配置
+// 重试配置与超时
 const MAX_RETRIES = 3; // 每个API key最多重试3次
 const RETRY_DELAY = 30000; // 重试延迟30秒
+const UPSTREAM_TIMEOUT_MS = parseInt(process.env.UPSTREAM_TIMEOUT_MS || '240000'); // 上游请求超时（默认240秒）
+const CLIENT_SOCKET_TIMEOUT_MS = parseInt(process.env.CLIENT_SOCKET_TIMEOUT_MS || '480000'); // 客户端连接/响应最大保持时间（默认480秒）
 
 // 定期清理过期的IP拉黑记录
 setInterval(async () => {
@@ -128,6 +130,33 @@ router.post('/chat/completions', apiAuth, async (req, res) => {
     let requestCompleted = false; // 标记请求是否正常完成（成功或失败但已处理）
     const isStreamingRequest = req.body && req.body.stream === true;
 
+    // 调整客户端与服务器之间的超时时间，避免长文本响应被提前断开
+    const clientTimeoutLogger = (phase = '未知阶段') => {
+      if (!clientDisconnected && !requestCompleted) {
+        clientDisconnected = true;
+        console.warn(`客户端连接在${phase}超时（>${CLIENT_SOCKET_TIMEOUT_MS / 1000}s），停止处理请求 (API Key ${apiKeyId} ${apiKeyName})`);
+        try {
+          if (!res.headersSent) {
+            res.status(504).json({
+              error: {
+                message: '客户端连接超时，请稍后再试',
+                type: 'gateway_timeout',
+                reason: `连接持续超过 ${CLIENT_SOCKET_TIMEOUT_MS / 1000} 秒`
+              }
+            });
+          } else {
+            res.end();
+          }
+        } catch (e) {
+          // ignore
+        }
+      }
+    };
+
+    req.setTimeout(CLIENT_SOCKET_TIMEOUT_MS, () => clientTimeoutLogger('客户端请求阶段'));
+    res.setTimeout(CLIENT_SOCKET_TIMEOUT_MS, () => clientTimeoutLogger('返回响应阶段'));
+    req.socket?.setTimeout?.(CLIENT_SOCKET_TIMEOUT_MS, () => clientTimeoutLogger('Socket'));
+
     // 检查客户端是否已断开的辅助函数（只检查，不设置标志）
     const checkClientDisconnected = () => {
       // 只检查 clientDisconnected 标志，不在这里设置
@@ -209,7 +238,7 @@ router.post('/chat/completions', apiAuth, async (req, res) => {
               'Authorization': `Bearer ${apiKey}`,
               'Content-Type': 'application/json'
             },
-            timeout: 120000, // 120秒超时
+            timeout: UPSTREAM_TIMEOUT_MS,
             responseType: isStreaming ? 'stream' : 'json'
           };
 
@@ -364,7 +393,7 @@ router.post('/chat/completions', apiAuth, async (req, res) => {
                   'Authorization': `Bearer ${apiKey}`,
                   'Content-Type': 'application/json'
                 },
-                timeout: 120000,
+                timeout: UPSTREAM_TIMEOUT_MS,
                 responseType: isStreamingRequest ? 'stream' : 'json'
               },
               `${SILICONFLOW_BASE_URL}/chat/completions`,
