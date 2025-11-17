@@ -131,7 +131,9 @@ class Database {
         { sql: `ALTER TABLE api_usage ADD COLUMN request_path TEXT`, field: 'usage_request_path' },
         { sql: `ALTER TABLE api_usage ADD COLUMN upstream_url TEXT`, field: 'usage_upstream_url' },
         { sql: `ALTER TABLE api_usage ADD COLUMN proxy_info TEXT`, field: 'usage_proxy_info' },
-        { sql: `ALTER TABLE api_usage ADD COLUMN request_id TEXT`, field: 'usage_request_id' }
+        { sql: `ALTER TABLE api_usage ADD COLUMN request_id TEXT`, field: 'usage_request_id' },
+        { sql: `ALTER TABLE api_usage ADD COLUMN client_api_key TEXT`, field: 'usage_client_api_key' },
+        { sql: `ALTER TABLE api_usage ADD COLUMN full_request_path TEXT`, field: 'usage_full_request_path' }
       ];
       
       let completed = 0;
@@ -316,7 +318,9 @@ class Database {
       requestPath = null,
       upstreamUrl = null,
       proxyInfo = null,
-      requestId = null
+      requestId = null,
+      clientApiKey = null,
+      fullRequestPath = null
     } = metadata || {};
 
     const proxyInfoString = proxyInfo ? JSON.stringify(proxyInfo) : null;
@@ -328,8 +332,8 @@ class Database {
     return new Promise((resolve, reject) => {
       this.db.run(
         `INSERT INTO api_usage 
-          (api_key_id, success, error, status_code, duration_ms, request_type, response_type, model, client_ip, request_path, upstream_url, proxy_info, request_id)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          (api_key_id, success, error, status_code, duration_ms, request_type, response_type, model, client_ip, request_path, upstream_url, proxy_info, request_id, client_api_key, full_request_path)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           apiKeyId,
           success ? 1 : 0,
@@ -343,7 +347,9 @@ class Database {
           requestPath,
           upstreamUrl,
           proxyInfoString,
-          requestId
+          requestId,
+          clientApiKey,
+          fullRequestPath
         ],
         (err) => {
           if (err) {
@@ -417,7 +423,7 @@ class Database {
     return new Promise((resolve, reject) => {
       this.db.all(
         `SELECT id, timestamp, success, error, status_code, duration_ms, request_type, response_type,
-                model, client_ip, request_path, upstream_url, proxy_info, request_id
+                model, client_ip, request_path, upstream_url, proxy_info, request_id, client_api_key, full_request_path
          FROM api_usage
          WHERE api_key_id = ?
          ORDER BY timestamp DESC

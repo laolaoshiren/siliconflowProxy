@@ -391,7 +391,7 @@ router.get('/api-keys/:id/logs', adminAuth, async (req, res) => {
         success: log.success === 1,
         status_code: log.status_code,
         duration_ms: log.duration_ms,
-        request_type: log.request_type || (proxyInfo ? '代理请求' : '最终请求'),
+        request_type: log.request_type || (proxyInfo ? '代理请求' : '客户端'),
         response_type: log.response_type || 'JSON',
         model: log.model || '未知',
         client_ip: log.client_ip || null,
@@ -399,6 +399,8 @@ router.get('/api-keys/:id/logs', adminAuth, async (req, res) => {
         upstream_url: log.upstream_url || null,
         proxy_info: proxyInfo,
         request_id: log.request_id || null,
+        client_api_key: log.client_api_key || null,
+        full_request_path: log.full_request_path || null,
         detail,
         detail_raw: log.error
       };
@@ -504,6 +506,12 @@ router.post('/api-keys/:id/verify', adminAuth, async (req, res) => {
 
     const verifyStartAt = Date.now();
     const verifyRequestId = `verify_${id}_${verifyStartAt}`;
+    
+    // 获取完整的请求URL（协议+主机+路径）
+    const protocol = req.protocol || (req.secure ? 'https' : 'http');
+    const host = req.get('host') || req.headers.host || 'localhost';
+    const requestPath = `/api/manage/api-keys/${id}/verify`;
+    const fullRequestPath = `${protocol}://${host}${requestPath}`;
 
     try {
       const response = await axios.post(
@@ -550,10 +558,11 @@ router.post('/api-keys/:id/verify', adminAuth, async (req, res) => {
         responseType: 'JSON',
         model: testRequest.model,
         clientIp: '管理端',
-        requestPath: `/api/manage/api-keys/${id}/verify`,
+        requestPath: requestPath,
         upstreamUrl: `${SILICONFLOW_BASE_URL}/chat/completions`,
         proxyInfo,
-        requestId: verifyRequestId
+        requestId: verifyRequestId,
+        fullRequestPath: fullRequestPath
       });
 
       await refreshApiKeys();
@@ -632,10 +641,11 @@ router.post('/api-keys/:id/verify', adminAuth, async (req, res) => {
         responseType: 'JSON',
         model: testRequest.model,
         clientIp: '管理端',
-        requestPath: `/api/manage/api-keys/${id}/verify`,
+        requestPath: requestPath,
         upstreamUrl: `${SILICONFLOW_BASE_URL}/chat/completions`,
         proxyInfo,
-        requestId: verifyRequestId
+        requestId: verifyRequestId,
+        fullRequestPath: fullRequestPath
       });
 
       return res.json({ 

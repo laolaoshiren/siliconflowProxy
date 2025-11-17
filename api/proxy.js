@@ -76,15 +76,80 @@ function buildResponseSummary(data) {
   const summary = {};
   if (data.id) summary.id = data.id;
   if (data.created) summary.created = data.created;
-  if (data.usage) summary.usage = data.usage;
-  if (Array.isArray(data.choices)) {
-    summary.choices = data.choices.map(choice => ({
-      finish_reason: choice.finish_reason,
-      role: choice.message?.role,
-      has_content: !!(choice.message && choice.message.content),
-      delta: choice.delta ? Object.keys(choice.delta) : undefined
-    }));
+  if (data.model) summary.model = data.model;
+  if (data.object) summary.object = data.object;
+  
+  // 完整保留usage信息（token使用量很重要）
+  if (data.usage) {
+    summary.usage = {
+      prompt_tokens: data.usage.prompt_tokens,
+      completion_tokens: data.usage.completion_tokens,
+      total_tokens: data.usage.total_tokens
+    };
   }
+  
+  // 保留choices的完整信息，包括message内容的关键信息
+  if (Array.isArray(data.choices)) {
+    summary.choices = data.choices.map(choice => {
+      const choiceSummary = {
+        finish_reason: choice.finish_reason,
+        index: choice.index
+      };
+      
+      if (choice.message) {
+        choiceSummary.message = {
+          role: choice.message.role
+        };
+        
+        // 保留content信息（内容长度等）
+        if (choice.message.content) {
+          if (typeof choice.message.content === 'string') {
+            choiceSummary.message.content_length = choice.message.content.length;
+            choiceSummary.message.has_content = true;
+          } else if (Array.isArray(choice.message.content)) {
+            choiceSummary.message.content_parts = choice.message.content.length;
+            choiceSummary.message.content_length = choice.message.content.reduce((sum, item) => {
+              if (item.text) return sum + item.text.length;
+              if (item.type === 'text' && item.text) return sum + item.text.length;
+              return sum;
+            }, 0);
+            choiceSummary.message.has_content = true;
+          }
+        }
+        
+        // 保留推理内容信息
+        if (choice.message.reasoning_content) {
+          choiceSummary.message.reasoning_length = typeof choice.message.reasoning_content === 'string'
+            ? choice.message.reasoning_content.length
+            : 0;
+        }
+        
+        // 保留工具调用信息
+        if (choice.message.tool_calls && Array.isArray(choice.message.tool_calls)) {
+          choiceSummary.message.tool_calls = choice.message.tool_calls.map(tc => ({
+            id: tc.id,
+            type: tc.type,
+            function: tc.function ? {
+              name: tc.function.name,
+              arguments: tc.function.arguments ? (typeof tc.function.arguments === 'string' ? tc.function.arguments.substring(0, 100) : JSON.stringify(tc.function.arguments).substring(0, 100)) : undefined
+            } : undefined
+          }));
+        }
+      }
+      
+      // 流式响应可能有delta
+      if (choice.delta) {
+        choiceSummary.delta = {
+          role: choice.delta.role,
+          has_content: !!(choice.delta.content),
+          has_tool_calls: !!(choice.delta.tool_calls && choice.delta.tool_calls.length > 0)
+        };
+      }
+      
+      return choiceSummary;
+    });
+  }
+  
   if (data.error && typeof data.error === 'object') {
     summary.error = {
       code: data.error.code,
@@ -199,6 +264,15 @@ router.post('/chat/completions', apiAuth, async (req, res) => {
     const baseRequestSummary = buildRequestSummary(req.body);
     const responseTypeLabel = isStreamingRequest ? RESPONSE_TYPE_LABEL.stream : RESPONSE_TYPE_LABEL.json;
     const clientRequestId = req.headers['x-request-id'] || `req_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    
+    // 获取完整的请求URL（协议+主机+路径）
+    const protocol = req.protocol || (req.secure ? 'https' : 'http');
+    const host = req.get('host') || req.headers.host || 'localhost';
+    const fullRequestPath = `${protocol}://${host}${requestPath}`;
+    
+    // 获取客户端发来的API密钥（从Authorization头）
+    const authHeader = req.headers.authorization;
+    const clientApiKey = authHeader && authHeader.startsWith('Bearer ') ? authHeader.substring(7) : null;
 
     // 调整客户端与服务器之间的超时时间，避免长文本响应被提前断开
     const clientTimeoutLogger = (phase = '未知阶段') => {
@@ -342,22 +416,38 @@ router.post('/chat/completions', apiAuth, async (req, res) => {
           await db.incrementCallCount(apiKeyId);
           const durationMs = Date.now() - attemptStart;
           const proxyDescriptor = buildProxyDescriptor(activeProxyForAttempt);
+          
+          // 对于流式响应，response.data是流对象，无法直接提取信息
+          // 对于非流式响应，可以提取完整信息
+          let responseSummary = null;
+          if (!isStreaming && response.data) {
+            responseSummary = buildResponseSummary(response.data);
+          } else if (isStreaming) {
+            // 流式响应：创建一个占位符，包含基本信息
+            responseSummary = {
+              stream: true,
+              model: req.body?.model || null
+            };
+          }
+          
           const successDetail = {
             request: baseRequestSummary,
-            response: buildResponseSummary(response.data),
+            response: responseSummary,
             proxy: proxyDescriptor
           };
           await db.recordUsage(apiKeyId, true, successDetail, {
             statusCode: response.status,
             durationMs,
-            requestType: proxyDescriptor ? '代理请求' : '最终请求',
+            requestType: proxyDescriptor ? '代理请求' : '客户端',
             responseType: responseTypeLabel,
             model: req.body?.model || null,
             clientIp,
             requestPath,
             upstreamUrl,
             proxyInfo: proxyDescriptor,
-            requestId: clientRequestId
+            requestId: clientRequestId,
+            clientApiKey,
+            fullRequestPath
           });
 
           // 如果之前这个key被标记为错误，现在成功了，恢复为正常
@@ -502,9 +592,22 @@ router.post('/chat/completions', apiAuth, async (req, res) => {
               await markApiKeyStatus(apiKeyId, 'active');
               await db.incrementCallCount(apiKeyId);
               const proxyDescriptorForLog = buildProxyDescriptor(proxyResult.proxy);
+              
+              // 对于流式响应，proxyResponse.data是流对象，无法直接提取信息
+              let proxyResponseSummary = null;
+              if (!isStreamingRequest && proxyResponse.data) {
+                proxyResponseSummary = buildResponseSummary(proxyResponse.data);
+              } else if (isStreamingRequest) {
+                // 流式响应：创建一个占位符
+                proxyResponseSummary = {
+                  stream: true,
+                  model: req.body?.model || null
+                };
+              }
+              
               const proxySuccessDetail = {
                 request: baseRequestSummary,
-                response: buildResponseSummary(proxyResponse.data),
+                response: proxyResponseSummary,
                 proxy: proxyDescriptorForLog
               };
               await db.recordUsage(apiKeyId, true, proxySuccessDetail, {
@@ -517,7 +620,9 @@ router.post('/chat/completions', apiAuth, async (req, res) => {
                 requestPath,
                 upstreamUrl,
                 proxyInfo: proxyDescriptorForLog,
-                requestId: clientRequestId
+                requestId: clientRequestId,
+                clientApiKey,
+                fullRequestPath
               });
 
               // 如果之前这个key被标记为错误，现在成功了，恢复为正常
@@ -739,14 +844,16 @@ router.post('/chat/completions', apiAuth, async (req, res) => {
             }, {
               statusCode: error.response?.status || null,
               durationMs,
-              requestType: proxyDescriptor ? '代理请求' : '最终请求',
+              requestType: proxyDescriptor ? '代理请求' : '客户端',
               responseType: responseTypeLabel,
               model: req.body?.model || null,
               clientIp,
               requestPath,
               upstreamUrl,
               proxyInfo: proxyDescriptor,
-              requestId: clientRequestId
+              requestId: clientRequestId,
+              clientApiKey,
+              fullRequestPath
             });
             await markApiKeyStatus(apiKeyId, 'error', errorMessage);
           }
