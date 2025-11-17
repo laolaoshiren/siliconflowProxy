@@ -634,7 +634,7 @@ router.post('/chat/completions', apiAuth, async (req, res) => {
               }
 
               // 处理流式响应
-              if (isStreaming && proxyResponse.data) {
+              if (isStreamingRequest && proxyResponse.data) {
                 const streamHeaders = {
                   'Content-Type': proxyResponse.headers['content-type'] || 'text/event-stream',
                   'Cache-Control': 'no-cache',
