@@ -292,23 +292,25 @@ main() {
     else
         print_info "检测到现有的 docker-compose.prod.yml，更新配置..."
         
-        # 更新端口配置（如果使用的是旧的默认值 3000）
-        if grep -q "\${PORT:-3000}" docker-compose.prod.yml 2>/dev/null; then
-            print_info "更新端口配置为默认值 3838..."
-            sed -i 's/\${PORT:-3000}/\${PORT:-3838}/g' docker-compose.prod.yml
-        fi
+        # 强制更新所有端口相关配置
+        print_info "更新端口配置..."
         
-        # 更新环境变量中的端口（如果使用的是旧的默认值 3000）
-        if grep -q "PORT=\${PORT:-3000}" docker-compose.prod.yml 2>/dev/null; then
-            print_info "更新环境变量端口配置..."
-            sed -i 's/PORT=\${PORT:-3000}/PORT=3838/g' docker-compose.prod.yml
-        fi
+        # 更新端口映射格式：${PORT:-3000}:3000 -> ${PORT:-3838}:3838
+        sed -i 's/\${PORT:-3000}:3000/\${PORT:-3838}:3838/g' docker-compose.prod.yml
+        sed -i 's/\${PORT:-3000}:3838/\${PORT:-3838}:3838/g' docker-compose.prod.yml
+        sed -i 's/\${PORT:-3838}:3000/\${PORT:-3838}:3838/g' docker-compose.prod.yml
         
-        # 更新端口映射（如果使用的是旧的 3000 内部端口）
-        if grep -q ":3000" docker-compose.prod.yml 2>/dev/null && ! grep -q ":3838" docker-compose.prod.yml 2>/dev/null; then
-            print_info "更新端口映射配置..."
-            sed -i 's/:3000/:3838/g' docker-compose.prod.yml
-        fi
+        # 更新单独的端口映射：:3000 -> :3838（在 ports 部分）
+        sed -i 's|"\(.*\):3000"|"\1:3838"|g' docker-compose.prod.yml
+        sed -i "s|'\(.*\):3000'|'\1:3838'|g" docker-compose.prod.yml
+        
+        # 更新环境变量中的端口
+        sed -i 's/PORT=\${PORT:-3000}/PORT=3838/g' docker-compose.prod.yml
+        sed -i 's/- PORT=3000/- PORT=3838/g' docker-compose.prod.yml
+        sed -i 's/- PORT=${PORT:-3000}/- PORT=3838/g' docker-compose.prod.yml
+        
+        # 更新健康检查中的端口
+        sed -i 's/localhost:3000/localhost:3838/g' docker-compose.prod.yml
         
         # 更新管理员密码（如果配置文件中没有设置或需要更新）
         if ! grep -q "ADMIN_PASSWORD=${ADMIN_PASSWORD}" docker-compose.prod.yml 2>/dev/null; then
@@ -329,11 +331,13 @@ main() {
     print_info "检查并清理旧容器..."
     if docker ps -a --format '{{.Names}}' | grep -q "^siliconflow-proxy$"; then
         print_warning "发现已存在的容器，正在停止并删除..."
-        # 使用 docker-compose down 确保完全清理
-        $DOCKER_COMPOSE_CMD -f docker-compose.prod.yml down 2>/dev/null || true
+        # 使用 docker-compose down 确保完全清理（包括网络）
+        $DOCKER_COMPOSE_CMD -f docker-compose.prod.yml down -v 2>/dev/null || true
         # 备用方法：直接使用 docker 命令
         docker stop siliconflow-proxy 2>/dev/null || true
         docker rm siliconflow-proxy 2>/dev/null || true
+        # 清理可能残留的网络
+        docker network prune -f 2>/dev/null || true
         print_success "旧容器已清理"
     fi
     
@@ -350,13 +354,26 @@ main() {
         }
     fi
     
-    # 10. 启动服务
+    # 10. 验证配置文件
+    print_info "验证配置文件..."
+    if grep -q ":3000" docker-compose.prod.yml 2>/dev/null; then
+        print_warning "检测到配置文件中仍有 3000 端口，正在修复..."
+        # 强制修复所有端口配置
+        sed -i 's/:3000/:3838/g' docker-compose.prod.yml
+        sed -i 's/localhost:3000/localhost:3838/g' docker-compose.prod.yml
+        print_success "配置文件已修复"
+    fi
+    
+    # 11. 启动服务
     print_info "启动服务..."
-    if $DOCKER_COMPOSE_CMD -f docker-compose.prod.yml up -d; then
+    # 使用 --force-recreate 确保使用新配置
+    if $DOCKER_COMPOSE_CMD -f docker-compose.prod.yml up -d --force-recreate; then
         print_success "服务启动成功"
     else
         print_error "服务启动失败"
         print_info "请检查日志: $DOCKER_COMPOSE_CMD -f docker-compose.prod.yml logs"
+        print_info "配置文件内容:"
+        cat docker-compose.prod.yml | grep -E "ports:|PORT=" || true
         exit 1
     fi
     
