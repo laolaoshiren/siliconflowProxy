@@ -163,7 +163,7 @@ check_docker_compose() {
 
 # 创建 docker-compose 配置文件
 create_docker_compose() {
-    local port=${1:-3000}
+    local port=${1:-3838}
     local admin_password=$2
     local compose_file="docker-compose.prod.yml"
     
@@ -254,7 +254,7 @@ main() {
     print_success "目录创建完成"
     
     # 5. 处理端口配置
-    PORT=${PORT:-3000}
+    PORT=${PORT:-3838}
     print_info "服务端口: $PORT"
     
     # 6. 处理管理员密码
@@ -280,10 +280,10 @@ main() {
         print_success "使用环境变量中的管理员密码"
     fi
     
-    # 生成新密码
+    # 使用默认密码（如果未设置）
     if [ -z "$ADMIN_PASSWORD" ]; then
-        ADMIN_PASSWORD=$(generate_password)
-        print_success "已生成新的管理员密码"
+        ADMIN_PASSWORD="admin"
+        print_success "使用默认管理员密码: admin"
     fi
     
     # 7. 创建或更新 docker-compose 配置

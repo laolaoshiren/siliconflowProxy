@@ -62,16 +62,20 @@ curl -fsSL https://raw.githubusercontent.com/laolaoshiren/siliconflowProxy/main/
 **自定义端口和密码：**
 
 ```bash
-export PORT=3838
+export PORT=8080
 export ADMIN_PASSWORD=your_custom_password
 curl -fsSL https://raw.githubusercontent.com/laolaoshiren/siliconflowProxy/main/install.sh | bash
 ```
+
+**默认配置：**
+- 默认端口：`3838`
+- 默认管理员密码：`admin`
 
 **脚本功能：**
 - ✅ 自动检测并安装 Docker（如需要）
 - ✅ 自动检测并安装 Docker Compose（如需要）
 - ✅ 自动创建 docker-compose 配置文件
-- ✅ 自动生成管理员密码（如果未设置）
+- ✅ 自动使用默认管理员密码（如果未设置）
 - ✅ 自动拉取最新 GitHub 构建镜像
 - ✅ 自动停止旧容器并启动新容器
 - ✅ 自动等待服务就绪并执行健康检查
@@ -86,7 +90,9 @@ curl -fsSL https://raw.githubusercontent.com/laolaoshiren/siliconflowProxy/main/
 - 🔄 更新服务命令
 
 **提示：**
-- 如果未设置 `ADMIN_PASSWORD`，脚本会自动生成一个16位随机密码
+- 默认端口为 `3838`，默认管理员密码为 `admin`
+- 如果已存在 `.env` 文件中的密码，将优先使用现有密码
+- 可以通过环境变量 `PORT` 和 `ADMIN_PASSWORD` 自定义配置
 - 密码会保存到 `.env` 文件和 `.deploy_password.txt` 文件（权限600）
 - 建议部署完成后删除 `.deploy_password.txt` 文件
 - 脚本会自动处理旧容器的停止和删除
@@ -229,7 +235,7 @@ npm start
 npm run dev
 ```
 
-服务启动后，访问 http://localhost:3000 打开管理界面。
+服务启动后，访问 http://localhost:3838 打开管理界面（生产环境默认端口）。
 
 ## API使用
 
@@ -244,7 +250,7 @@ POST https://api.siliconflow.cn/v1/chat/completions
 
 **代理请求：**
 ```bash
-POST http://localhost:3000/api/proxy/chat/completions
+POST http://localhost:3838/api/proxy/chat/completions
 ```
 
 请求体和响应格式完全兼容硅基流动API。
@@ -284,11 +290,11 @@ POST http://localhost:3000/api/proxy/chat/completions
 1. **并发限制**：程序严格限制30分钟内只有一个并发请求，这是为了避免触发上游防御
 2. **API密钥安全**：请妥善保管API密钥，不要泄露
 3. **数据备份**：定期备份 `data` 目录下的数据库文件
-4. **端口配置**：默认端口3000，可通过环境变量 `PORT` 修改
+4. **端口配置**：生产环境默认端口3838，可通过环境变量 `PORT` 修改
 
 ## 环境变量
 
-- `PORT`: 服务端口（默认：3000）
+- `PORT`: 服务端口（生产环境默认：3838）
 - `ADMIN_PASSWORD`: 管理员密码（用于保护管理接口，留空则不启用）
 - `NODE_ENV`: 运行环境（production/development）
 - `AUTO_QUERY_BALANCE_AFTER_CALLS`: API KEY自动查询余额配置（调用多少次后自动查询余额，0表示禁用，默认：10）
