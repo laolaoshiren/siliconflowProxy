@@ -1282,6 +1282,42 @@
         </div>
     </div>
 
+    <!-- 客户端API密钥管理模态框 -->
+    <div id="clientApiKeyModal" class="add-modal">
+        <div class="add-box" style="max-width: 700px;">
+            <div class="add-header">
+                <h2>🔐 客户端API密钥管理</h2>
+                <button class="close-btn" onclick="closeClientApiKeyModal()" title="关闭">×</button>
+            </div>
+            <div class="add-body">
+                <div class="info-box" style="margin-bottom: 20px; padding: 15px; background: var(--info-box-bg); border-left: 4px solid var(--info-box-border); border-radius: 4px;">
+                    <p style="margin: 0; color: var(--info-box-text); font-size: 14px; line-height: 1.6;">
+                        <strong>说明：</strong>这是客户端访问本代理服务时使用的API密钥。客户端需要在请求头中使用 <code style="background: rgba(0,0,0,0.1); padding: 2px 6px; border-radius: 3px;">Authorization: Bearer &lt;API密钥&gt;</code> 来访问代理服务。
+                    </p>
+                </div>
+                <div class="form-group">
+                    <label for="clientApiKeyDisplay">当前API密钥：</label>
+                    <div style="display: flex; gap: 10px; align-items: center;">
+                        <input type="text" id="clientApiKeyDisplay" readonly style="flex: 1; padding: 10px; border: 1px solid var(--border-color); border-radius: 4px; background: var(--input-bg); color: var(--text-primary); font-family: monospace;" placeholder="未设置">
+                        <button class="btn btn-info" onclick="copyClientApiKey()" style="padding: 10px 16px;">复制</button>
+                        <button class="btn btn-info" onclick="toggleClientApiKeyVisibility()" id="toggleVisibilityBtn" style="padding: 10px 16px;">显示</button>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label for="clientApiKeyInput">修改API密钥：</label>
+                    <input type="password" id="clientApiKeyInput" placeholder="输入新的API密钥（至少8个字符）" style="width: 100%; padding: 10px; border: 1px solid var(--border-color); border-radius: 4px; background: var(--input-bg); color: var(--text-primary); font-family: monospace;">
+                    <p style="margin-top: 8px; color: var(--text-secondary); font-size: 12px;">
+                        提示：修改后需要重启服务才能完全生效（如果已更新.env文件）
+                    </p>
+                </div>
+            </div>
+            <div class="add-footer">
+                <button type="button" class="btn" onclick="closeClientApiKeyModal()" style="background: var(--table-header-bg); color: var(--text-primary); border: 1px solid var(--border-color);">取消</button>
+                <button type="button" class="btn btn-primary" onclick="updateClientApiKey()">保存修改</button>
+            </div>
+        </div>
+    </div>
+
     <!-- 代理配置模态框 -->
     <div class="add-modal" id="proxyModal">
         <div class="add-box" style="max-width: 900px; min-height: 600px;">
@@ -1327,6 +1363,7 @@
             <div class="header">
                 <h1>🔑 硅基流动API管理</h1>
                 <div style="display: flex; gap: 10px; align-items: center;">
+                    <button class="btn btn-info" onclick="showClientApiKeyModal()" style="padding: 8px 16px; font-size: 14px;">🔐 客户端API密钥</button>
                     <button class="btn btn-info" onclick="showProxyModal()" style="padding: 8px 16px; font-size: 14px;">🌐 代理配置</button>
                     <button class="theme-toggle" id="themeToggle" title="切换暗黑模式">🌙</button>
                 </div>
@@ -3509,6 +3546,176 @@
         document.getElementById('proxyModal')?.addEventListener('click', (e) => {
             if (e.target.id === 'proxyModal') {
                 closeProxyModal();
+            }
+        });
+
+        // ========== 客户端API密钥管理 ==========
+        let clientApiKeyVisible = false;
+        let currentClientApiKey = '';
+
+        // 显示客户端API密钥管理模态框
+        async function showClientApiKeyModal() {
+            const modal = document.getElementById('clientApiKeyModal');
+            modal.style.display = 'flex';
+            
+            // 加载当前API密钥
+            await loadClientApiKey();
+        }
+
+        // 关闭客户端API密钥管理模态框
+        function closeClientApiKeyModal() {
+            const modal = document.getElementById('clientApiKeyModal');
+            modal.style.display = 'none';
+            clientApiKeyVisible = false;
+            document.getElementById('clientApiKeyInput').value = '';
+            updateClientApiKeyDisplay();
+        }
+
+        // 加载客户端API密钥
+        async function loadClientApiKey() {
+            try {
+                const response = await fetch('/api/manage/client-api-key', {
+                    headers: getAuthHeaders()
+                });
+                
+                if (response.status === 401) {
+                    handleAuthError();
+                    return;
+                }
+                
+                const result = await response.json();
+                if (result.success) {
+                    currentClientApiKey = result.data.api_key || '';
+                    clientApiKeyVisible = false;
+                    updateClientApiKeyDisplay();
+                } else {
+                    showAlert('加载API密钥失败: ' + result.message, 'error');
+                }
+            } catch (error) {
+                console.error('加载客户端API密钥失败:', error);
+                showAlert('加载客户端API密钥失败', 'error');
+            }
+        }
+
+        // 更新API密钥显示
+        function updateClientApiKeyDisplay() {
+            const displayInput = document.getElementById('clientApiKeyDisplay');
+            const toggleBtn = document.getElementById('toggleVisibilityBtn');
+            
+            if (!currentClientApiKey) {
+                displayInput.value = '';
+                displayInput.placeholder = '未设置';
+                toggleBtn.style.display = 'none';
+                return;
+            }
+            
+            toggleBtn.style.display = 'inline-block';
+            
+            if (clientApiKeyVisible) {
+                displayInput.value = currentClientApiKey;
+                displayInput.type = 'text';
+                toggleBtn.textContent = '隐藏';
+            } else {
+                const masked = currentClientApiKey.length > 12 
+                    ? `${currentClientApiKey.substring(0, 8)}...${currentClientApiKey.substring(currentClientApiKey.length - 4)}`
+                    : '••••••••';
+                displayInput.value = masked;
+                displayInput.type = 'text';
+                toggleBtn.textContent = '显示';
+            }
+        }
+
+        // 切换API密钥显示/隐藏
+        function toggleClientApiKeyVisibility() {
+            clientApiKeyVisible = !clientApiKeyVisible;
+            updateClientApiKeyDisplay();
+        }
+
+        // 复制客户端API密钥
+        function copyClientApiKey() {
+            if (!currentClientApiKey) {
+                showAlert('没有可复制的API密钥', 'warning');
+                return;
+            }
+            
+            navigator.clipboard.writeText(currentClientApiKey).then(() => {
+                showAlert('API密钥已复制到剪贴板', 'success');
+            }).catch(err => {
+                console.error('复制失败:', err);
+                // 备用方法
+                const textArea = document.createElement('textarea');
+                textArea.value = currentClientApiKey;
+                textArea.style.position = 'fixed';
+                textArea.style.opacity = '0';
+                document.body.appendChild(textArea);
+                textArea.select();
+                try {
+                    document.execCommand('copy');
+                    showAlert('API密钥已复制到剪贴板', 'success');
+                } catch (e) {
+                    showAlert('复制失败，请手动复制', 'error');
+                }
+                document.body.removeChild(textArea);
+            });
+        }
+
+        // 更新客户端API密钥
+        async function updateClientApiKey() {
+            const newApiKey = document.getElementById('clientApiKeyInput').value.trim();
+            
+            if (!newApiKey) {
+                showAlert('请输入新的API密钥', 'error');
+                return;
+            }
+            
+            if (newApiKey.length < 8) {
+                showAlert('API密钥长度至少需要8个字符', 'error');
+                return;
+            }
+            
+            try {
+                const response = await fetch('/api/manage/client-api-key', {
+                    method: 'PUT',
+                    headers: {
+                        ...getAuthHeaders(),
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ api_key: newApiKey })
+                });
+                
+                if (response.status === 401) {
+                    handleAuthError();
+                    return;
+                }
+                
+                const result = await response.json();
+                if (result.success) {
+                    currentClientApiKey = result.data.api_key;
+                    clientApiKeyVisible = false;
+                    updateClientApiKeyDisplay();
+                    document.getElementById('clientApiKeyInput').value = '';
+                    
+                    let message = 'API密钥已更新';
+                    if (result.data.env_file_updated) {
+                        message += '。已更新 .env 文件，请重启服务使配置完全生效。';
+                    } else {
+                        message += '。请手动更新环境变量配置并重启服务。';
+                    }
+                    
+                    showAlert(message, 'success');
+                } else {
+                    showAlert('更新失败: ' + result.message, 'error');
+                }
+            } catch (error) {
+                console.error('更新客户端API密钥失败:', error);
+                showAlert('更新客户端API密钥失败', 'error');
+            }
+        }
+
+        // 点击模态框外部关闭
+        document.getElementById('clientApiKeyModal')?.addEventListener('click', (e) => {
+            if (e.target.id === 'clientApiKeyModal') {
+                closeClientApiKeyModal();
             }
         });
     </script>

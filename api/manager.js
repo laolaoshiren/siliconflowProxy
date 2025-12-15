@@ -1032,5 +1032,101 @@ async function autoVerifyProxyConfig(proxyId) {
   }
 }
 
+// 获取客户端API密钥（用于客户端访问代理服务）
+router.get('/client-api-key', adminAuth, (req, res) => {
+  try {
+    const apiKey = process.env.ADMIN_PASSWORD || '';
+    const maskedKey = apiKey ? `${apiKey.substring(0, 8)}...${apiKey.substring(apiKey.length - 4)}` : '';
+    
+    res.json({
+      success: true,
+      data: {
+        api_key: apiKey, // 返回完整密钥
+        masked_key: maskedKey, // 返回掩码后的密钥用于显示
+        is_set: !!apiKey
+      }
+    });
+  } catch (error) {
+    console.error('获取客户端API密钥失败:', error);
+    res.status(500).json({ success: false, message: '获取客户端API密钥失败' });
+  }
+});
+
+// 更新客户端API密钥（用于客户端访问代理服务）
+router.put('/client-api-key', adminAuth, async (req, res) => {
+  try {
+    const { api_key } = req.body;
+    
+    if (!api_key || typeof api_key !== 'string' || api_key.trim().length === 0) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'API密钥不能为空' 
+      });
+    }
+    
+    const trimmedKey = api_key.trim();
+    
+    // 验证密钥长度（建议至少8位）
+    if (trimmedKey.length < 8) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'API密钥长度至少需要8个字符' 
+      });
+    }
+    
+    // 更新环境变量（仅在运行时有效，重启后会丢失）
+    process.env.ADMIN_PASSWORD = trimmedKey;
+    
+    // 尝试更新 .env 文件（如果存在）
+    const fs = require('fs');
+    const path = require('path');
+    const envPath = path.join(__dirname, '..', '.env');
+    
+    let envUpdated = false;
+    if (fs.existsSync(envPath)) {
+      try {
+        let envContent = fs.readFileSync(envPath, 'utf8');
+        const lines = envContent.split('\n');
+        let updated = false;
+        
+        const newLines = lines.map(line => {
+          if (line.trim().startsWith('ADMIN_PASSWORD=')) {
+            updated = true;
+            return `ADMIN_PASSWORD=${trimmedKey}`;
+          }
+          return line;
+        });
+        
+        if (!updated) {
+          newLines.push(`ADMIN_PASSWORD=${trimmedKey}`);
+        }
+        
+        fs.writeFileSync(envPath, newLines.join('\n'), 'utf8');
+        envUpdated = true;
+      } catch (fileError) {
+        console.warn('更新 .env 文件失败:', fileError.message);
+      }
+    }
+    
+    const maskedKey = `${trimmedKey.substring(0, 8)}...${trimmedKey.substring(trimmedKey.length - 4)}`;
+    
+    res.json({
+      success: true,
+      message: 'API密钥已更新',
+      data: {
+        api_key: trimmedKey,
+        masked_key: maskedKey,
+        env_file_updated: envUpdated,
+        note: envUpdated 
+          ? '已更新 .env 文件，重启服务后生效' 
+          : '已更新运行时环境变量，但未找到 .env 文件。请手动更新环境变量配置并重启服务'
+      }
+    });
+  } catch (error) {
+    console.error('更新客户端API密钥失败:', error);
+    res.status(500).json({ success: false, message: '更新客户端API密钥失败' });
+  }
+});
+
 module.exports = router;
 
