@@ -195,6 +195,8 @@ services:
       - NODE_ENV=production
       - ADMIN_PASSWORD=${admin_password}
       - AUTO_QUERY_BALANCE_AFTER_CALLS=10
+      - UPSTREAM_TIMEOUT_MS=600000
+      - CLIENT_SOCKET_TIMEOUT_MS=600000
     healthcheck:
       test: ["CMD", "node", "-e", "require('http').get('http://localhost:3838/api/proxy/health', (r) => {process.exit(r.statusCode === 200 ? 0 : 1)})"]
       interval: 30s
@@ -356,6 +358,20 @@ main() {
                 sed -i "s/ADMIN_PASSWORD=.*/ADMIN_PASSWORD=${ADMIN_PASSWORD}/g" docker-compose.prod.yml
             fi
         fi
+
+        # 确保超时环境变量存在并为最大值
+        if ! grep -q "UPSTREAM_TIMEOUT_MS=" docker-compose.prod.yml 2>/dev/null; then
+            print_info "添加 UPSTREAM_TIMEOUT_MS=600000 到 docker-compose.prod.yml"
+            sed -i '/AUTO_QUERY_BALANCE_AFTER_CALLS=10/a\      - UPSTREAM_TIMEOUT_MS=600000\n      - CLIENT_SOCKET_TIMEOUT_MS=600000' docker-compose.prod.yml
+        else
+            sed -i 's/UPSTREAM_TIMEOUT_MS=.*/UPSTREAM_TIMEOUT_MS=600000/g' docker-compose.prod.yml
+        fi
+        if ! grep -q "CLIENT_SOCKET_TIMEOUT_MS=" docker-compose.prod.yml 2>/dev/null; then
+            # 如果上一步已经添加，这里可能已存在；仅在缺失时添加
+            sed -i '/UPSTREAM_TIMEOUT_MS=600000/a\      - CLIENT_SOCKET_TIMEOUT_MS=600000' docker-compose.prod.yml
+        else
+            sed -i 's/CLIENT_SOCKET_TIMEOUT_MS=.*/CLIENT_SOCKET_TIMEOUT_MS=600000/g' docker-compose.prod.yml
+        fi
         
         print_success "配置文件已更新"
     fi
@@ -506,6 +522,8 @@ PORT=${PORT}
 NODE_ENV=production
 ADMIN_PASSWORD=${ADMIN_PASSWORD}
 AUTO_QUERY_BALANCE_AFTER_CALLS=10
+UPSTREAM_TIMEOUT_MS=600000
+CLIENT_SOCKET_TIMEOUT_MS=600000
 EOF
         print_info "配置已保存到 .env 文件"
     fi
