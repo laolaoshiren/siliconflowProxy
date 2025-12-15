@@ -158,7 +158,7 @@ main() {
     fi
     
     # 5. 处理端口配置
-    PORT=${PORT:-3000}
+    PORT=${PORT:-3838}
     print_info "服务端口: ${PORT}"
     
     # 6. 创建或更新 .env 文件

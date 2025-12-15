@@ -177,17 +177,17 @@ services:
     image: ghcr.io/laolaoshiren/siliconflowproxy:latest
     container_name: siliconflow-proxy
     ports:
-      - "${port}:3000"
+      - "${port}:3838"
     volumes:
       - ./data:/app/data
     restart: unless-stopped
     environment:
-      - PORT=3000
+      - PORT=3838
       - NODE_ENV=production
       - ADMIN_PASSWORD=${admin_password}
       - AUTO_QUERY_BALANCE_AFTER_CALLS=10
     healthcheck:
-      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3000/api/proxy/health', (r) => {process.exit(r.statusCode === 200 ? 0 : 1)})"]
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3838/api/proxy/health', (r) => {process.exit(r.statusCode === 200 ? 0 : 1)})"]
       interval: 30s
       timeout: 3s
       retries: 3
@@ -290,11 +290,39 @@ main() {
     if [ ! -f docker-compose.prod.yml ]; then
         create_docker_compose "$PORT" "$ADMIN_PASSWORD"
     else
-        print_info "使用现有的 docker-compose.prod.yml"
-        # 更新环境变量（如果需要）
-        if ! grep -q "ADMIN_PASSWORD=${ADMIN_PASSWORD}" docker-compose.prod.yml 2>/dev/null; then
-            print_warning "检测到配置可能需要更新，建议检查 docker-compose.prod.yml"
+        print_info "检测到现有的 docker-compose.prod.yml，更新配置..."
+        
+        # 更新端口配置（如果使用的是旧的默认值 3000）
+        if grep -q "\${PORT:-3000}" docker-compose.prod.yml 2>/dev/null; then
+            print_info "更新端口配置为默认值 3838..."
+            sed -i 's/\${PORT:-3000}/\${PORT:-3838}/g' docker-compose.prod.yml
         fi
+        
+        # 更新环境变量中的端口（如果使用的是旧的默认值 3000）
+        if grep -q "PORT=\${PORT:-3000}" docker-compose.prod.yml 2>/dev/null; then
+            print_info "更新环境变量端口配置..."
+            sed -i 's/PORT=\${PORT:-3000}/PORT=3838/g' docker-compose.prod.yml
+        fi
+        
+        # 更新端口映射（如果使用的是旧的 3000 内部端口）
+        if grep -q ":3000" docker-compose.prod.yml 2>/dev/null && ! grep -q ":3838" docker-compose.prod.yml 2>/dev/null; then
+            print_info "更新端口映射配置..."
+            sed -i 's/:3000/:3838/g' docker-compose.prod.yml
+        fi
+        
+        # 更新管理员密码（如果配置文件中没有设置或需要更新）
+        if ! grep -q "ADMIN_PASSWORD=${ADMIN_PASSWORD}" docker-compose.prod.yml 2>/dev/null; then
+            # 如果配置文件中是空的 ADMIN_PASSWORD，则更新它
+            if grep -q "ADMIN_PASSWORD=\${ADMIN_PASSWORD:-}" docker-compose.prod.yml 2>/dev/null; then
+                print_info "更新管理员密码配置..."
+                sed -i "s/ADMIN_PASSWORD=\${ADMIN_PASSWORD:-}/ADMIN_PASSWORD=${ADMIN_PASSWORD}/g" docker-compose.prod.yml
+            elif grep -q "ADMIN_PASSWORD=" docker-compose.prod.yml 2>/dev/null; then
+                print_info "更新管理员密码配置..."
+                sed -i "s/ADMIN_PASSWORD=.*/ADMIN_PASSWORD=${ADMIN_PASSWORD}/g" docker-compose.prod.yml
+            fi
+        fi
+        
+        print_success "配置文件已更新"
     fi
     
     # 8. 停止并删除旧容器（使用 docker-compose 确保完全清理）
