@@ -52,7 +52,14 @@
 curl -fsSL https://raw.githubusercontent.com/laolaoshiren/siliconflowProxy/main/install.sh | bash
 ```
 
-**或者指定工作目录：**
+**工作目录说明：**
+
+脚本会自动将配置文件放在用户的 `siliconflowProxy` 目录中，避免与生产环境其他项目冲突：
+- 默认位置：`$HOME/siliconflowProxy`（用户主目录下）
+- 如果以 root 用户运行：`/opt/siliconflow-proxy`
+- 可通过环境变量自定义：`export SILICONFLOW_PROXY_DIR=/custom/path`
+
+**指定自定义工作目录：**
 
 ```bash
 export SILICONFLOW_PROXY_DIR=/opt/siliconflow-proxy
@@ -91,11 +98,14 @@ curl -fsSL https://raw.githubusercontent.com/laolaoshiren/siliconflowProxy/main/
 
 **提示：**
 - 默认端口为 `3838`，默认管理员密码为 `admin`
+- **配置文件位置**：自动放在 `$HOME/siliconflowProxy` 目录中，避免与其他项目冲突
 - 如果已存在 `.env` 文件中的密码，将优先使用现有密码
 - 可以通过环境变量 `PORT` 和 `ADMIN_PASSWORD` 自定义配置
+- 可以通过环境变量 `SILICONFLOW_PROXY_DIR` 自定义工作目录
 - 密码会保存到 `.env` 文件和 `.deploy_password.txt` 文件（权限600）
 - 建议部署完成后删除 `.deploy_password.txt` 文件
 - 脚本会自动处理旧容器的停止和删除
+- 每个工作目录使用独立的容器名称，支持多实例部署
 
 #### 方式1：本地部署脚本
 

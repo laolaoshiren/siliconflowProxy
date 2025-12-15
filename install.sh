@@ -167,7 +167,16 @@ create_docker_compose() {
     local admin_password=$2
     local compose_file="docker-compose.prod.yml"
     
+    # 生成唯一的容器名称（基于工作目录）
+    local container_name="siliconflow-proxy"
+    local work_dir_basename=$(basename "$(pwd)")
+    if [ "$work_dir_basename" != "siliconflowProxy" ] && [ -n "$work_dir_basename" ]; then
+        # 如果目录名不是默认的，使用目录名作为后缀，避免冲突
+        container_name="siliconflow-proxy-$(echo "$work_dir_basename" | tr '/' '_' | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9_-]//g' | cut -c1-20)"
+    fi
+    
     print_info "创建 Docker Compose 配置文件..."
+    print_info "容器名称: $container_name"
     
     cat > "$compose_file" <<EOF
 version: '3.8'
@@ -175,7 +184,7 @@ version: '3.8'
 services:
   siliconflow-proxy:
     image: ghcr.io/laolaoshiren/siliconflowproxy:latest
-    container_name: siliconflow-proxy
+    container_name: ${container_name}
     ports:
       - "${port}:3838"
     volumes:
@@ -234,19 +243,43 @@ main() {
     check_docker_compose
     print_success "Docker Compose 可用"
     
-    # 3. 创建工作目录
-    WORK_DIR="${SILICONFLOW_PROXY_DIR:-$(pwd)}"
+    # 3. 创建工作目录（放在用户的 siliconflowProxy 目录中，避免与其他项目冲突）
+    if [ -n "$SILICONFLOW_PROXY_DIR" ]; then
+        # 如果指定了环境变量，使用指定的目录
+        WORK_DIR="$SILICONFLOW_PROXY_DIR"
+    else
+        # 否则使用用户主目录下的 siliconflowProxy 目录
+        if [ -n "$HOME" ] && [ -d "$HOME" ]; then
+            WORK_DIR="$HOME/siliconflowProxy"
+        else
+            # 如果无法获取 HOME，尝试从当前用户获取
+            CURRENT_USER="${SUDO_USER:-$USER}"
+            if [ -n "$CURRENT_USER" ] && [ "$CURRENT_USER" != "root" ]; then
+                WORK_DIR="/home/$CURRENT_USER/siliconflowProxy"
+            else
+                # 最后使用 /opt/siliconflow-proxy
+                WORK_DIR="/opt/siliconflow-proxy"
+            fi
+        fi
+    fi
+    
+    print_info "工作目录: $WORK_DIR"
+    
     if [ ! -d "$WORK_DIR" ]; then
+        print_info "创建工作目录..."
         mkdir -p "$WORK_DIR" || {
             print_error "无法创建工作目录: $WORK_DIR"
             exit 1
         }
+        print_success "工作目录已创建"
     fi
+    
     cd "$WORK_DIR" || {
         print_error "无法切换到工作目录: $WORK_DIR"
         exit 1
     }
-    print_info "工作目录: $WORK_DIR"
+    
+    print_info "当前工作目录: $(pwd)"
     
     # 4. 创建数据目录
     print_info "创建必要的目录..."
@@ -329,13 +362,23 @@ main() {
     
     # 8. 停止并删除旧容器（使用 docker-compose 确保完全清理）
     print_info "检查并清理旧容器..."
-    if docker ps -a --format '{{.Names}}' | grep -q "^siliconflow-proxy$"; then
-        print_warning "发现已存在的容器，正在停止并删除..."
+    
+    # 获取容器名称（从配置文件或使用默认名称）
+    CONTAINER_NAME="siliconflow-proxy"
+    if [ -f docker-compose.prod.yml ]; then
+        EXTRACTED_NAME=$(grep "container_name:" docker-compose.prod.yml | head -1 | sed 's/.*container_name:[[:space:]]*//' | tr -d '"' | tr -d "'" | xargs)
+        if [ -n "$EXTRACTED_NAME" ]; then
+            CONTAINER_NAME="$EXTRACTED_NAME"
+        fi
+    fi
+    
+    if docker ps -a --format '{{.Names}}' | grep -q "^${CONTAINER_NAME}$"; then
+        print_warning "发现已存在的容器 ($CONTAINER_NAME)，正在停止并删除..."
         # 使用 docker-compose down 确保完全清理（包括网络）
         $DOCKER_COMPOSE_CMD -f docker-compose.prod.yml down -v 2>/dev/null || true
         # 备用方法：直接使用 docker 命令
-        docker stop siliconflow-proxy 2>/dev/null || true
-        docker rm siliconflow-proxy 2>/dev/null || true
+        docker stop "$CONTAINER_NAME" 2>/dev/null || true
+        docker rm "$CONTAINER_NAME" 2>/dev/null || true
         # 清理可能残留的网络
         docker network prune -f 2>/dev/null || true
         print_success "旧容器已清理"
@@ -394,8 +437,14 @@ main() {
     print_separator
     echo ""
     
+    # 获取容器名称（从配置文件）
+    if [ -f docker-compose.prod.yml ]; then
+        CONTAINER_NAME=$(grep "container_name:" docker-compose.prod.yml | head -1 | sed 's/.*container_name:[[:space:]]*//' | tr -d '"' | tr -d "'" | xargs)
+    fi
+    CONTAINER_NAME="${CONTAINER_NAME:-siliconflow-proxy}"
+    
     # 获取容器状态
-    CONTAINER_STATUS=$(docker ps --filter "name=siliconflow-proxy" --format "{{.Status}}" 2>/dev/null || echo "未知")
+    CONTAINER_STATUS=$(docker ps --filter "name=${CONTAINER_NAME}" --format "{{.Status}}" 2>/dev/null || echo "未知")
     
     # 获取实际访问地址
     HOST_IP=$(get_host_ip)
@@ -404,6 +453,9 @@ main() {
     echo -e "${YELLOW}═══════════════════════════════════════════════════════${NC}"
     echo -e "${GREEN}  重要信息 - 请妥善保管！${NC}"
     echo -e "${YELLOW}═══════════════════════════════════════════════════════${NC}"
+    echo ""
+    echo -e "${BLUE}📁 工作目录：${NC}"
+    echo -e "   ${YELLOW}${WORK_DIR}${NC}"
     echo ""
     echo -e "${BLUE}📌 服务访问地址：${NC}"
     echo -e "   本地访问: ${GREEN}http://localhost:${PORT}${NC}"
@@ -414,20 +466,24 @@ main() {
     echo -e "${BLUE}🔑 管理员密码：${NC}"
     echo -e "   ${RED}${ADMIN_PASSWORD}${NC}"
     echo ""
+    echo -e "${BLUE}📦 容器名称：${NC}"
+    echo -e "   ${YELLOW}${CONTAINER_NAME}${NC}"
+    echo ""
     echo -e "${BLUE}📊 容器状态：${NC}"
     echo -e "   ${CONTAINER_STATUS}"
     echo ""
     echo -e "${BLUE}📝 管理命令：${NC}"
-    echo -e "   查看日志: ${YELLOW}docker logs -f siliconflow-proxy${NC}"
-    echo -e "   停止服务: ${YELLOW}docker stop siliconflow-proxy${NC}"
-    echo -e "   启动服务: ${YELLOW}docker start siliconflow-proxy${NC}"
-    echo -e "   重启服务: ${YELLOW}docker restart siliconflow-proxy${NC}"
-    echo -e "   删除服务: ${YELLOW}docker stop siliconflow-proxy && docker rm siliconflow-proxy${NC}"
+    echo -e "   查看日志: ${YELLOW}docker logs -f ${CONTAINER_NAME}${NC}"
+    echo -e "   停止服务: ${YELLOW}docker stop ${CONTAINER_NAME}${NC}"
+    echo -e "   启动服务: ${YELLOW}docker start ${CONTAINER_NAME}${NC}"
+    echo -e "   重启服务: ${YELLOW}docker restart ${CONTAINER_NAME}${NC}"
+    echo -e "   删除服务: ${YELLOW}docker stop ${CONTAINER_NAME} && docker rm ${CONTAINER_NAME}${NC}"
     echo ""
     echo -e "${BLUE}📁 数据目录：${NC}"
     echo -e "   ${YELLOW}${WORK_DIR}/data${NC}"
     echo ""
     echo -e "${BLUE}🔄 更新服务：${NC}"
+    echo -e "   ${YELLOW}cd ${WORK_DIR}${NC}"
     echo -e "   ${YELLOW}curl -fsSL https://raw.githubusercontent.com/laolaoshiren/siliconflowProxy/main/install.sh | bash${NC}"
     echo ""
     echo -e "${YELLOW}═══════════════════════════════════════════════════════${NC}"
