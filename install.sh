@@ -244,16 +244,16 @@ main() {
     print_success "Docker Compose 可用"
     
     # 3. 创建工作目录（放在用户的 siliconflowProxy 目录中，避免与其他项目冲突）
-    if [ -n "$SILICONFLOW_PROXY_DIR" ]; then
+    if [ -n "${SILICONFLOW_PROXY_DIR:-}" ]; then
         # 如果指定了环境变量，使用指定的目录
-        WORK_DIR="$SILICONFLOW_PROXY_DIR"
+        WORK_DIR="${SILICONFLOW_PROXY_DIR}"
     else
         # 否则使用用户主目录下的 siliconflowProxy 目录
-        if [ -n "$HOME" ] && [ -d "$HOME" ]; then
-            WORK_DIR="$HOME/siliconflowProxy"
+        if [ -n "${HOME:-}" ] && [ -d "${HOME}" ]; then
+            WORK_DIR="${HOME}/siliconflowProxy"
         else
             # 如果无法获取 HOME，尝试从当前用户获取
-            CURRENT_USER="${SUDO_USER:-$USER}"
+            CURRENT_USER="${SUDO_USER:-${USER:-}}"
             if [ -n "$CURRENT_USER" ] && [ "$CURRENT_USER" != "root" ]; then
                 WORK_DIR="/home/$CURRENT_USER/siliconflowProxy"
             else
