@@ -5,10 +5,7 @@
 
 set -euo pipefail
 
-# 错误处理
-trap 'print_error "脚本执行出错，行号: $LINENO"' ERR
-
-# 颜色定义
+# 颜色定义（必须在 trap 之前定义）
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
@@ -16,7 +13,7 @@ BLUE='\033[0;34m'
 CYAN='\033[0;36m'
 NC='\033[0m' # No Color
 
-# 打印带颜色的消息
+# 打印带颜色的消息（必须在 trap 之前定义）
 print_info() {
     echo -e "${BLUE}[信息]${NC} $1"
 }
@@ -32,6 +29,9 @@ print_warning() {
 print_error() {
     echo -e "${RED}[错误]${NC} $1"
 }
+
+# 错误处理（必须在函数定义之后）
+trap 'print_error "脚本执行出错，行号: $LINENO"' ERR
 
 print_title() {
     echo -e "${CYAN}$1${NC}"
