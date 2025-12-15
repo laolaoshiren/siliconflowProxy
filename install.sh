@@ -515,9 +515,9 @@ main() {
         print_warning "请妥善保管该文件，建议部署完成后删除"
     fi
     
-    # 保存到 .env 文件
-    if [ ! -f .env ] || ! grep -q "ADMIN_PASSWORD=" .env; then
-        cat >> .env <<EOF
+    # 保存到 .env 文件（保持最新密码）
+    if [ ! -f .env ]; then
+        cat > .env <<EOF
 # SiliconFlow Proxy 环境配置
 PORT=${PORT}
 NODE_ENV=production
@@ -526,7 +526,21 @@ AUTO_QUERY_BALANCE_AFTER_CALLS=10
 UPSTREAM_TIMEOUT_MS=600000
 CLIENT_SOCKET_TIMEOUT_MS=600000
 EOF
-        print_info "配置已保存到 .env 文件"
+        print_info "配置已写入新 .env 文件"
+    else
+        # 更新或追加管理员密码
+        if grep -q "^ADMIN_PASSWORD=" .env; then
+            sed -i "s/^ADMIN_PASSWORD=.*/ADMIN_PASSWORD=${ADMIN_PASSWORD}/" .env
+        else
+            echo "ADMIN_PASSWORD=${ADMIN_PASSWORD}" >> .env
+        fi
+        # 确保基础配置存在（避免旧文件缺少字段）
+        grep -q "^PORT=" .env || echo "PORT=${PORT}" >> .env
+        grep -q "^NODE_ENV=" .env || echo "NODE_ENV=production" >> .env
+        grep -q "^AUTO_QUERY_BALANCE_AFTER_CALLS=" .env || echo "AUTO_QUERY_BALANCE_AFTER_CALLS=10" >> .env
+        grep -q "^UPSTREAM_TIMEOUT_MS=" .env || echo "UPSTREAM_TIMEOUT_MS=600000" >> .env
+        grep -q "^CLIENT_SOCKET_TIMEOUT_MS=" .env || echo "CLIENT_SOCKET_TIMEOUT_MS=600000" >> .env
+        print_info ".env 已更新为最新密码与配置"
     fi
     
     # 显示健康检查
