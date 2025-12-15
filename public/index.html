@@ -1292,7 +1292,14 @@
             <div class="add-body">
                 <div class="info-box" style="margin-bottom: 20px; padding: 15px; background: var(--info-box-bg); border-left: 4px solid var(--info-box-border); border-radius: 4px;">
                     <p style="margin: 0; color: var(--info-box-text); font-size: 14px; line-height: 1.6;">
-                        <strong>说明：</strong>这是客户端访问本代理服务时使用的API密钥。客户端需要在请求头中使用 <code style="background: rgba(0,0,0,0.1); padding: 2px 6px; border-radius: 3px;">Authorization: Bearer &lt;API密钥&gt;</code> 来访问代理服务。
+                        <strong>重要说明：</strong>此密钥具有双重用途：
+                    </p>
+                    <ul style="margin: 10px 0 0 20px; padding: 0; color: var(--info-box-text); font-size: 14px; line-height: 1.8;">
+                        <li><strong>管理员密码：</strong>用于网页登录和管理接口认证</li>
+                        <li><strong>客户端API密钥：</strong>大模型客户端访问代理服务时需要在请求头中使用 <code style="background: rgba(0,0,0,0.1); padding: 2px 6px; border-radius: 3px;">Authorization: Bearer &lt;API密钥&gt;</code></li>
+                    </ul>
+                    <p style="margin: 10px 0 0 0; color: var(--info-box-text); font-size: 13px; line-height: 1.6;">
+                        ⚠️ 修改此密钥后，需要同时更新客户端配置和重新登录管理界面。
                     </p>
                 </div>
                 <div class="form-group">
@@ -1304,10 +1311,10 @@
                     </div>
                 </div>
                 <div class="form-group">
-                    <label for="clientApiKeyInput">修改API密钥：</label>
+                    <label for="clientApiKeyInput">修改API密钥（同时修改管理员密码和客户端API密钥）：</label>
                     <input type="password" id="clientApiKeyInput" placeholder="输入新的API密钥（至少8个字符）" style="width: 100%; padding: 10px; border: 1px solid var(--border-color); border-radius: 4px; background: var(--input-bg); color: var(--text-primary); font-family: monospace;">
                     <p style="margin-top: 8px; color: var(--text-secondary); font-size: 12px;">
-                        提示：修改后需要重启服务才能完全生效（如果已更新.env文件）
+                        ⚠️ 修改后：1) 需要重启服务才能完全生效；2) 需要使用新密钥重新登录管理界面；3) 大模型客户端需要使用新密钥访问代理服务
                     </p>
                 </div>
             </div>
@@ -3695,14 +3702,22 @@
                     updateClientApiKeyDisplay();
                     document.getElementById('clientApiKeyInput').value = '';
                     
-                    let message = 'API密钥已更新';
+                    let message = 'API密钥已更新（管理员密码和客户端API密钥已同时更新）';
                     if (result.data.env_file_updated) {
                         message += '。已更新 .env 文件，请重启服务使配置完全生效。';
                     } else {
                         message += '。请手动更新环境变量配置并重启服务。';
                     }
+                    message += ' 注意：需要使用新密钥重新登录管理界面，大模型客户端也需要使用新密钥访问代理服务。';
                     
                     showAlert(message, 'success');
+                    
+                    // 如果更新成功，提示用户可能需要重新登录
+                    setTimeout(() => {
+                        if (confirm('API密钥已更新。由于此密钥也是管理员密码，建议刷新页面并使用新密钥重新登录。是否现在刷新页面？')) {
+                            window.location.reload();
+                        }
+                    }, 2000);
                 } else {
                     showAlert('更新失败: ' + result.message, 'error');
                 }
