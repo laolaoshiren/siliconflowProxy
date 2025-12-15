@@ -295,27 +295,28 @@ main() {
     # 6. 处理管理员密码
     print_info "处理管理员密码..."
     
+    # 优先级：显式传入的环境变量 > .env 文件 > 默认值
     ADMIN_PASSWORD="${ADMIN_PASSWORD:-}"
     USE_EXISTING_PASSWORD=false
     
-    # 检查是否已有 .env 文件
-    if [ -f .env ] && grep -q "ADMIN_PASSWORD=" .env; then
-        EXISTING_PASSWORD=$(grep "ADMIN_PASSWORD=" .env | cut -d '=' -f2- | tr -d '"' | tr -d "'" | xargs)
-        if [ -n "$EXISTING_PASSWORD" ]; then
-            ADMIN_PASSWORD="$EXISTING_PASSWORD"
-            USE_EXISTING_PASSWORD=true
-            print_success "使用现有管理员密码（从 .env 文件）"
-        fi
-    fi
-    
-    # 如果环境变量中有密码，使用环境变量
+    # 1) 显式环境变量（或备用变量）优先
     if [ -z "$ADMIN_PASSWORD" ] && [ -n "${ADMIN_PASSWORD_ENV:-}" ]; then
         ADMIN_PASSWORD="$ADMIN_PASSWORD_ENV"
         USE_EXISTING_PASSWORD=true
         print_success "使用环境变量中的管理员密码"
     fi
     
-    # 使用默认密码（如果未设置）
+    # 2) .env 中已有的配置（仅在未显式指定时使用）
+    if [ -z "$ADMIN_PASSWORD" ] && [ -f .env ] && grep -q "ADMIN_PASSWORD=" .env; then
+        EXISTING_PASSWORD=$(grep "ADMIN_PASSWORD=" .env | cut -d '=' -f2- | tr -d '"' | tr -d "'" | xargs)
+        if [ -n "$EXISTING_PASSWORD" ]; then
+            ADMIN_PASSWORD="$EXISTING_PASSWORD"
+            USE_EXISTING_PASSWORD=true
+            print_success "使用现有管理员密码（来自 .env）"
+        fi
+    fi
+    
+    # 3) 默认值
     if [ -z "$ADMIN_PASSWORD" ]; then
         ADMIN_PASSWORD="admin"
         print_success "使用默认管理员密码: admin"
@@ -553,4 +554,5 @@ EOF
 
 # 执行主函数
 main "$@"
+
 
