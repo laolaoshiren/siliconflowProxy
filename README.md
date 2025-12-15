@@ -44,7 +44,68 @@
 
 ### 使用Docker（推荐）
 
-#### 方式1：使用Docker Compose（本地构建）
+#### 方式0：远程一键部署（最推荐，生产环境）
+
+**一条命令完成所有部署：**
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/laolaoshiren/siliconflowProxy/main/install.sh | bash
+```
+
+**或者指定工作目录：**
+
+```bash
+export SILICONFLOW_PROXY_DIR=/opt/siliconflow-proxy
+curl -fsSL https://raw.githubusercontent.com/laolaoshiren/siliconflowProxy/main/install.sh | bash
+```
+
+**自定义端口和密码：**
+
+```bash
+export PORT=3838
+export ADMIN_PASSWORD=your_custom_password
+curl -fsSL https://raw.githubusercontent.com/laolaoshiren/siliconflowProxy/main/install.sh | bash
+```
+
+**脚本功能：**
+- ✅ 自动检测并安装 Docker（如需要）
+- ✅ 自动检测并安装 Docker Compose（如需要）
+- ✅ 自动创建 docker-compose 配置文件
+- ✅ 自动生成管理员密码（如果未设置）
+- ✅ 自动拉取最新 GitHub 构建镜像
+- ✅ 自动停止旧容器并启动新容器
+- ✅ 自动等待服务就绪并执行健康检查
+- ✅ 显示所有重要信息（访问地址、管理员密码、管理命令等）
+
+**部署后显示的信息包括：**
+- 📌 服务访问地址（本地和网络）
+- 🔑 管理员密码（高亮显示）
+- 📊 容器运行状态
+- 📝 常用管理命令（查看日志、启动、停止、重启等）
+- 📁 数据目录位置
+- 🔄 更新服务命令
+
+**提示：**
+- 如果未设置 `ADMIN_PASSWORD`，脚本会自动生成一个16位随机密码
+- 密码会保存到 `.env` 文件和 `.deploy_password.txt` 文件（权限600）
+- 建议部署完成后删除 `.deploy_password.txt` 文件
+- 脚本会自动处理旧容器的停止和删除
+
+#### 方式1：本地部署脚本
+
+如果已经克隆了项目，可以使用本地部署脚本：
+
+```bash
+# 克隆项目
+git clone https://github.com/laolaoshiren/siliconflowProxy.git
+cd siliconflowProxy
+
+# 运行部署脚本
+chmod +x deploy.sh
+./deploy.sh
+```
+
+#### 方式2：使用Docker Compose（本地构建）
 
 ```bash
 # 克隆项目
